@@ -2,7 +2,21 @@
 (define (filter-over ls) (lambda (fn) (filter fn ls)))
 
 
+(define-structure mspm-error path data)
+
+
 (define-structure ra::obj data hidden-meta visible-meta)
+
+
+(define (ra::handle-crash-fn thunk)
+  ; TODO
+  (thunk)
+  )
+
+
+(define-syntax ra::handle-crash
+  (syntax-rules ()
+    ((e (ra::handle-crash-fn (lambda () e))))))
 
 
 (define (ra::data obj-or-scheme-val)

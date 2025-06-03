@@ -7,7 +7,9 @@
 (include "runtime.scm")
 
 
-(define-structure mspm-error path data)
+(define library-path "~/.local/share/red-apple-lisp/")
+
+
 (define-structure macro-expansion original processed)
 (define-structure module full-path ast-tree)
 
@@ -16,21 +18,15 @@
   (error (make-mspm-error #f (list err sexp))))
 
 
-(define (read-and-parse-module path #!key dir)
-  (define absolute-path
-    (if (equal? (string-ref path 0) #\/)
-      path
-      (if (string-prefix? "./" path)
-        (string-append (or dir (current-directory)) path)
-        (error "TODO"))))
+(define (read-and-parse-module full-path #!key dir)
   (let ((result
     (with-exception-handler
       identity
-      (lambda () (parse (read-file-string path))))))
+      (lambda () (parse (read-file-string full-path))))))
     (if (or (no-such-file-or-directory-exception? result)
             (parsing-error? result))
-      (error (make-mspm-error path result))
-      (make-module absolute-path result))))
+      (error (make-mspm-error full-path result))
+      (make-module full-path result))))
 
 
 (define statements '("define" "define-macro" "do" "assign" "import" "assert"))
@@ -641,11 +637,18 @@
            (sexp-code
              (cadr (ast-obj->sexp (module-ast-tree parsed)))))
       (set! modules-code (cons sexp-code modules-code))
-      (for-each
-        ra::push-scheme-statement!
-        (ns->scheme
-          sexp-code
-          (make-codegen-info full-path #t #!void))))))
+      (define maybe-error
+        (with-exception-handler
+          error-exception-message
+          (lambda ()
+            (for-each
+              ra::push-scheme-statement!
+              (ns->scheme
+                sexp-code
+                (make-codegen-info full-path #t #!void))))))
+      (if (mspm-error? maybe-error)
+        (error (mspm-error-path-set maybe-error full-path))
+        (error maybe-error)))))
 
 
 (define (import-module! sexp ci)
@@ -653,14 +656,14 @@
     (crash 'invalid-import-format sexp)
     (let ()
       (define full-path
-        (if (string-prefix? "/" (cadr sexp))
-          (cadr sexp)
-          (if (string-prefix? "./" (cadr sexp))
-            ; TODO
-            (string-append
-              (dir-from-path (codegen-info-path ci))
-              (substring (cadr sexp) 2 (string-length (cadr sexp))))
-            (crash 'import-format-not-implemented sexp))))
+        (path-normalize
+          (if (string-prefix? "/" (cadr sexp))
+            (cadr sexp)
+            (if (string-prefix? "./" (cadr sexp))
+              (string-append
+                (dir-from-path (codegen-info-path ci))
+                (substring (cadr sexp) 2 (string-length (cadr sexp))))
+              (string-append library-path (cadr sexp))))))
       (read-and-parse-module! full-path)
       `(ra::ns-merge
          ,(ns-ref-from-ci ci)
@@ -816,4 +819,25 @@
                 `(ra::call #!void ,callable ,args)))))))))
 
 
-
+(ra::handle-crash
+  (let ((args (cdr (command-line))))
+    (cond ((null? args) (error "no file to compile"))
+          ((> (length args) 1) (error "one file expected for compilation"))
+          ((< (string-length (car args)) 1) (error "empty file string"))
+      (else
+        (let ((absolute-path
+                (path-normalize
+                  (if (equal? (string-ref (car args) 0) #\/)
+                    (car args)
+                    (string-append (current-directory) (car args)))))
+              (path-to-scm-file (string-append absolute-path ".tmp.scm")))
+          (read-and-parse-module! path-to-scm-file)
+          (call-with-output-file
+            absolute-path
+            (lambda (port) (write (ra::scheme-code-cont '()) port)))
+          (define gambit-output
+            (with-input-from-process
+              `(path: "gsc" arguments: ("-exe" ,path-to-scm-file))
+              read-line))
+          (if (not (equal? gambit-output #!eof))
+            (error gambit-output)))))))
