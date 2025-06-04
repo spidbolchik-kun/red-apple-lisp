@@ -16,7 +16,8 @@
 
 (define-syntax ra::handle-crash
   (syntax-rules ()
-    ((e (ra::handle-crash-fn (lambda () e))))))
+    ((_ e ...)
+     (ra::handle-crash-fn (lambda () e ...)))))
 
 
 (define (ra::data obj-or-scheme-val)

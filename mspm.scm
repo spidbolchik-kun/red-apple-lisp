@@ -3,7 +3,6 @@
 
 (include "utils.scm")
 (include "parser.scm")
-(include "builtins.scm")
 (include "runtime.scm")
 
 
@@ -637,7 +636,7 @@
            (sexp-code
              (cadr (ast-obj->sexp (module-ast-tree parsed)))))
       (set! modules-code (cons sexp-code modules-code))
-      (define maybe-error
+      (let ((maybe-error
         (with-exception-handler
           error-exception-message
           (lambda ()
@@ -645,10 +644,10 @@
               ra::push-scheme-statement!
               (ns->scheme
                 sexp-code
-                (make-codegen-info full-path #t #!void))))))
-      (if (mspm-error? maybe-error)
-        (error (mspm-error-path-set maybe-error full-path))
-        (error maybe-error)))))
+                (make-codegen-info full-path #t #!void)))))))
+        (if (mspm-error? maybe-error)
+          (error (mspm-error-path-set maybe-error full-path))
+          (error maybe-error))))))
 
 
 (define (import-module! sexp ci)
@@ -835,9 +834,9 @@
           (call-with-output-file
             absolute-path
             (lambda (port) (write (ra::scheme-code-cont '()) port)))
-          (define gambit-output
+          (let ((gambit-output
             (with-input-from-process
               `(path: "gsc" arguments: ("-exe" ,path-to-scm-file))
-              read-line))
-          (if (not (equal? gambit-output #!eof))
-            (error gambit-output)))))))
+              read-line)))
+            (if (not (equal? gambit-output #!eof))
+              (error gambit-output))))))))
