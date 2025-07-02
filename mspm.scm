@@ -17,9 +17,10 @@
   (error (make-mspm-error #f (list err sexp))))
 
 
-(define (read-and-parse-module full-path #!key dir)
+(define (read-and-parse-module full-path)
+  (print "read-and-parse-module: " full-path "\n")
   (let ((result
-    (with-exception-handler
+    (with-exception-catcher
       identity
       (lambda () (parse (read-file-string full-path))))))
     (if (or (no-such-file-or-directory-exception? result)
@@ -84,6 +85,7 @@
 
 (define (prefixize-head-=-chain sexp-list #!key wrap-standalone)
   (define (assignment? ident) (equal? ident "="))
+  (print "prefixize-head-=-chain...\n")
 
   (if (assignment? (car sexp-list))
     (crash 'bad-= (car sexp-list))
@@ -106,11 +108,12 @@
 
 
 (define (prefixize-= sexp-list #!key wrap-standalone)
+  (print "prefixize-=: " sexp-list "\n")
   (if (null? sexp-list)
     '()
     (let ((res (prefixize-head-=-chain sexp-list
                  wrap-standalone: wrap-standalone)))
-      (cons (car res) (prefixize-= (cdr res))))))
+      (cons (car res) (prefixize-= (cdr res) wrap-standalone: #t)))))
 
 
 (define (bad-quotes-and-refs sexp)
@@ -216,6 +219,8 @@
              (not (equal? "&" (car body))))
       (crash 'expected-rest-marker body))
 
+    (print "destructuring-identifiers..." "\n")
+
     (if (null? body)
       '()
       (if (equal? (car body) "&")
@@ -249,7 +254,7 @@
                 (let* ((next-level
                          (if (and (= (length =-chain) 1) (string? (car =-chain)))
                            '()
-                           (inner (car =-chain))))
+                           (inner (last =-chain))))
                        (getter-ls (unique (map cdadr next-level)))
                        (next-acc
                          (if (quoted-list? sexp)
@@ -321,7 +326,7 @@
 
 
 (define (fn-arguments args)
-  (define kinds '("#positional" "#key" "#either" "#default"))
+  (define kinds '("#positional" "#key" "#key-rest" "#either" "#default"))
   (define (kind-marker? arg) (one-of? arg kinds))
 
   (define (get-one-group args #!key (kont identity))
@@ -393,11 +398,18 @@
              (crash 'not-an-unquoted-symbol var)
              var))))))
 
-  (define (split-kw-rest group #!key (kont identity))
+  (define (split-kw-rest* group #!key (kont identity))
     (if (or (null? group) (equal? (car group) "&"))
       (list (cons "#key" (kont '())) (cons "#key-rest" group))
-      (split-kw-rest (cdr group)
+      (split-kw-rest* (cdr group)
         kont: (lambda (acc) (kont (cons (car group) acc))))))
+
+  (define (split-kw-rest groups)
+    (if (null? groups)
+      '()
+      (if (equal? (caar groups) "#key")
+        (append (split-kw-rest* (cdar groups)) (cdr groups))
+        (cons (car groups) (split-kw-rest (cdr groups))))))
 
   (define (parse-group group)
     (case (string->symbol (substring (car group) 1 (string-length (car group))))
@@ -407,13 +419,18 @@
       ((key-rest) (destructuring-identifiers (list "kv-quote" (cdr group))))
       ((default) (map check-default (prefixize-=-unwrap (cdr group))))))
 
+
   (define (one-of-kinds? obj) (one-of? obj kinds))
+  (display "fn-arguments: ")
+  (display args)
+  (display "\n")
+
   (let ((dups (get-duplicates-by
                 identity
                 (filter one-of-kinds? args))))
     (if (not (null? dups))
       (crash 'duplicate-argument-markers dups)
-      (let* ((unparsed-groups (separate (cons "#positional" args)))
+      (let* ((unparsed-groups (split-kw-rest (separate (cons "#positional" args))))
              (groups
                (check-order
                  ((map-over unparsed-groups)
@@ -423,9 +440,6 @@
                       (lambda (kind)
                         (let ((group (assoc kind groups)))
                           (if group group (list kind))))))
-             (groups (append
-                       (alist-delete "#key" groups)
-                       (split-kw-rest (cdr (assoc "#key" groups)))))
              (get-group (lambda (group) (cdr (assoc group groups)))))
         (let ((dups (get-duplicates-by
                       identity
@@ -630,15 +644,33 @@
   `(ra::ns-ref ,(ns-ref-from-ci ci) ,val))
 
 
-(define (read-and-parse-module! full-path)
+(define (get-module-full-path path #!key ci)
+  (print "get-module-full-path: " path "\n")
+  (path-normalize
+    (if (string-prefix? "/" path)
+      path
+      (if (string-prefix? "./" path)
+        (string-append
+          (dir-from-path (if (not ci) (current-directory) (codegen-info-path ci)))
+          (substring path 2 (string-length path)))
+        (string-append library-path path)))))
+
+
+(define (read-and-parse-module-by-path! full-path)
+  (print "read-and-parse-module-by-path!: " full-path "\n")
   (if (equal? #!void (find-one (equal-by full-path) modules-code))
     (let* ((parsed (read-and-parse-module full-path))
            (sexp-code
-             (cadr (ast-obj->sexp (module-ast-tree parsed)))))
+             (fn-if (not (equal? full-path (get-module-full-path "builtins.ra")))
+                    (lambda (code) (cons '("import" ("quote" "builtins.ra")) code))
+                    (cadr (ast-obj->sexp (module-ast-tree parsed))))))
       (set! modules-code (cons sexp-code modules-code))
       (let ((maybe-error
-        (with-exception-handler
-          error-exception-message
+        (with-exception-catcher
+          (lambda (e)
+            (if (error-exception? e)
+              (error-exception-message e)
+              e))
           (lambda ()
             (for-each
               ra::push-scheme-statement!
@@ -647,23 +679,22 @@
                 (make-codegen-info full-path #t #!void)))))))
         (if (mspm-error? maybe-error)
           (error (mspm-error-path-set maybe-error full-path))
-          (error maybe-error))))))
+          (if (equal? maybe-error #!void)
+            #!void
+            (error maybe-error)))))))
 
 
 (define (import-module! sexp ci)
-  (if (not (= (length sexp) 2))
+  (print "import-module:" (cadadr sexp) "\n")
+  (if (or (not (= (length sexp) 2))
+          (not (list? (cadr sexp)))
+          (not (equal? (caadr sexp) "quote"))
+          (not (= (length (cadr sexp)) 2))
+          (not (string? (cadadr sexp))))
     (crash 'invalid-import-format sexp)
     (let ()
-      (define full-path
-        (path-normalize
-          (if (string-prefix? "/" (cadr sexp))
-            (cadr sexp)
-            (if (string-prefix? "./" (cadr sexp))
-              (string-append
-                (dir-from-path (codegen-info-path ci))
-                (substring (cadr sexp) 2 (string-length (cadr sexp))))
-              (string-append library-path (cadr sexp))))))
-      (read-and-parse-module! full-path)
+      (define full-path (get-module-full-path (cadadr sexp) ci: ci))
+      (read-and-parse-module-by-path! full-path)
       `(ra::ns-merge
          ,(ns-ref-from-ci ci)
          (ra::ns-current (ra::get-module ,full-path))
@@ -671,6 +702,7 @@
 
 
 (define (ns->scheme sexp ci)
+  (print "ns->scheme..." "\n")
   (if (null? sexp)
     '()
     (let ((sexp (prepare-first-statement sexp)))
@@ -680,7 +712,7 @@
           (if (equal? "assign" (caar sexp))
             (var-setter ci (cadar sexp) (caddar sexp))
             (if (equal? "import" (caar sexp))
-              (import-module! sexp ci)
+              (import-module! (car sexp) ci)
               (if (equal? "assert" (caar sexp))
                 (let ((expr (val->scheme `("and" ,@(cdar sexp)) ci)))
                   `(if (not ,expr)
@@ -696,6 +728,8 @@
 
   (define (push value)
     (cont-cons (fn-if (not unpack) (wrap-into-list 'list) value) cont))
+
+  (print "qs->scheme..." "\n")
 
   (if (not (or (quoted-list? sexp) (quoted-kv? sexp)))
     (crash 'not-a-quoted-structure sexp)
@@ -738,6 +772,10 @@
   (define (continue ls)
     (map (lambda (a) (val->scheme a new-ci)) ls))
 
+  (display "val->scheme: ")
+  (display (list sexp ci))
+  (display "\n")
+
   (assert-is-value sexp)
 
   (if (quoted-structure? sexp)
@@ -778,7 +816,7 @@
                     (map
                       (lambda (kv)
                         (cons (car kv)
-                              `(lambda () ,(val->scheme (cdr kv) new-ci))))
+                              `((lambda () ,(val->scheme (cadr kv) new-ci)))))
                       (append (cdr (assoc "#default" decl))
                               (cdr (assoc "#key" decl))))))
              `(let ()
@@ -804,7 +842,8 @@
                 (ra::wrap-callable-in-meta function (quote ,decl)))))
 
           (else
-            (if (or (string-prefix? "##" (car sexp)) (string-prefix? "ra::" (car sexp)))
+            (if (and (string? (car sexp))
+                     (or (string-prefix? "##" (car sexp)) (string-prefix? "ra::" (car sexp))))
               `(,(string->symbol (car sexp))
                  ,@(map (lambda (arg) (val->scheme arg new-ci)) (cdr sexp)))
               (let* ((callable (val->scheme (car sexp) new-ci))
@@ -818,25 +857,32 @@
                 `(ra::call #!void ,callable ,args)))))))))
 
 
-(ra::handle-crash
+(define (ra-compile file-path)
+  (ra::handle-crash
+    (let* ((absolute-path
+             (path-normalize
+               (if (equal? (string-ref file-path 0) #\/)
+                 file-path
+                 (string-append (current-directory) file-path))))
+           (path-to-scm-file (string-append absolute-path ".tmp.scm")))
+      (read-and-parse-module-by-path! path-to-scm-file)
+      (call-with-output-file
+        absolute-path
+        (lambda (port) (write (ra::scheme-code-cont '()) port)))
+      (let ((gambit-output
+        (with-input-from-process
+          `(path: "gsc" arguments: ("-exe" ,path-to-scm-file))
+          read-line)))
+        (if (not (equal? gambit-output #!eof))
+          (error gambit-output))))))
+
+
+(define (main-fn)
   (let ((args (cdr (command-line))))
     (cond ((null? args) (error "no file to compile"))
           ((> (length args) 1) (error "one file expected for compilation"))
           ((< (string-length (car args)) 1) (error "empty file string"))
-      (else
-        (let ((absolute-path
-                (path-normalize
-                  (if (equal? (string-ref (car args) 0) #\/)
-                    (car args)
-                    (string-append (current-directory) (car args)))))
-              (path-to-scm-file (string-append absolute-path ".tmp.scm")))
-          (read-and-parse-module! path-to-scm-file)
-          (call-with-output-file
-            absolute-path
-            (lambda (port) (write (ra::scheme-code-cont '()) port)))
-          (let ((gambit-output
-            (with-input-from-process
-              `(path: "gsc" arguments: ("-exe" ,path-to-scm-file))
-              read-line)))
-            (if (not (equal? gambit-output #!eof))
-              (error gambit-output))))))))
+          (else (ra-compile (car args))))))
+
+
+(main-fn)

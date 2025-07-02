@@ -9,9 +9,14 @@
 
 
 (define (ra::handle-crash-fn thunk)
-  ; TODO
-  (thunk)
-  )
+  (let ((maybe-exception (thunk)))
+    (if (error-exception? maybe-exception)
+      (begin
+        (display "error:")
+        (newline)
+        (display exception)
+        (newline)
+))))
 
 
 (define-syntax ra::handle-crash

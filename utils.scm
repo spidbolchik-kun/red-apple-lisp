@@ -178,3 +178,29 @@
 (define (alist-delete key alist)
   (filter (lambda (kv) (not (equal? key (car kv))))
           alist))
+
+
+(define (tree-map f obj)
+  (cond ((list? obj)
+         (map (lambda (obj) (tree-map f obj)) obj))
+        ((pair? obj)
+         (cons (f (car obj)) (f (cdr obj))))
+        (else (f obj))))
+
+
+(define (display-in-red-with-newline string #!key stderr)
+  (print port: (if stderr (current-error-port) (current-output-port))
+         "\033[31m"
+         string
+         "\033[0m\n"))
+
+
+(define-syntax quote-sexp-with-symbols->strings
+  (syntax-rules ()
+    ((_ e ...)
+     (tree-map
+       (lambda (obj)
+         (cond ((symbol? obj) (symbol->string obj))
+               ((string? obj) (cons "quote" obj))
+               (else obj)))
+       '(e ...)))))

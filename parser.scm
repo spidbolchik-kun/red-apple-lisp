@@ -96,7 +96,7 @@
                    (reverse (iota (length hex-digits)))))))
       (if (not char-num)
         #f
-        (let ((char (with-exception-handler
+        (let ((char (with-exception-catcher
                       (lambda (e) #f)
                       (lambda () (integer->char char-num)))))
           (and char
