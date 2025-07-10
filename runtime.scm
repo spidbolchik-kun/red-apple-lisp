@@ -8,15 +8,91 @@
 (define-structure ra::obj data hidden-meta visible-meta)
 
 
+(define EXN #!void)
+
+
+(define (ra::display-in-red-with-newline string #!key (stderr #t))
+  (print port: (if stderr (current-error-port) (current-output-port))
+         "\033[91m"
+         string
+         "\033[0m\n"))
+
+
 (define (ra::handle-crash-fn thunk)
-  (let ((maybe-exception (thunk)))
-    (if (error-exception? maybe-exception)
-      (begin
-        (display "error:")
-        (newline)
-        (display exception)
-        (newline)
-))))
+  (with-exception-catcher
+    (lambda (e)
+      (define (string-strip-beginning-spaces str #!key (i 0))
+        (if (equal? (string-length str) i)
+          ""
+          (if (not (equal? (string-ref str i) #\space))
+            (substring str i (string-length str))
+            (string-strip-beginning-spaces str i: (+ i 1)))))
+
+      (set! EXN e)
+
+      (if (error-exception? e)
+        (if (equal? (error-exception-message e) 'contract-violation)
+          (let ()
+            (define callee-params (last (error-exception-parameters e)))
+            (define callee-module-path (car callee-params))
+            (define callee-code-range (cadr callee-params))
+            (define callee-expr (caddr callee-params))
+
+            (define caller-params (cadr (error-exception-parameters e)))
+            (define caller-module-path (car caller-params))
+            (define caller-code-range (cadr caller-params))
+            (define caller-expr (caddr caller-params))
+
+            (define callee-name (last caller-params))
+
+            (define callee-vars (car (error-exception-parameters e)))
+
+            (ra::display-in-red-with-newline
+              (string-append
+                "=====================================\n"
+                "(˵ ͡° ͜ʖ ͡°˵) contract violation error\n"
+                "====================================="))
+
+            (display
+              (string-append
+                caller-expr
+                "\n\nfrom "
+                caller-module-path
+                "@"
+                caller-code-range
+                "\n")
+              (current-error-port))
+
+            (display "called \033[93m" (current-error-port))
+            (display callee-name (current-error-port))
+            (display "\n\033[0m" (current-error-port))
+            (display "violating \033[93m" (current-error-port))
+            (display (string-strip-beginning-spaces callee-expr) (current-error-port))
+            (display "\033[0m\n" (current-error-port))
+            (display
+              (string-append
+                "in "
+                callee-module-path
+                "@"
+                callee-code-range
+                "\n")
+              (current-error-port))
+            (display "\033[0m" (current-error-port))
+
+
+            (display "\n\033[0mwhere:\n" (current-error-port))
+
+            ((map-over (ra::dictionary-alist callee-vars))
+             (lambda (kv)
+               (display (car kv))
+               (display " = ")
+               (pp (cdr kv))))
+
+            (exit))
+          (error e))
+        (error e)))
+    thunk
+))
 
 
 (define-syntax ra::handle-crash
@@ -73,9 +149,8 @@
 
 
 (define (ra::dictionary-set dictionary key value)
-  (let ((alist (ra::dictionary-alist dictionary)))
-    (ra::dictionary-alist-set
-      (ra::alist-set (ra::dictionary-alist dictionary) key value))))
+  (make-ra::dictionary
+    (ra::alist-set (ra::dictionary-alist dictionary) key value)))
 
 
 (define (ra::dictionary-empty? dict)
@@ -98,14 +173,16 @@
       #!void)
     (if (equal? (ra::data (caar alist)) (ra::data key))
       (cdar alist)
-      (ra::alist-get key (cdr alist)))))
+      (ra::alist-get key (cdr alist) error-on-null: error-on-null))))
 
 
 (define (ra::dictionary-has? dictionary key)
   (let ((alist (ra::dictionary-alist dictionary)))
-    (with-exception-handler
+    (with-exception-catcher
       (lambda (e) #f)
-      (and (ra::alist-get key alist error-on-null: #t) #t))))
+      (lambda ()
+        (ra::alist-get key alist error-on-null: #t)
+        #t))))
 
 
 (define (ra::dictionary-pick dictionary keys)
@@ -132,7 +209,7 @@
       (let ((structure (ra::data structure)))
         (let ((new-structure
           (cond ((ra::dictionary? structure)
-                 (ra::alist-get (ra::dictionary-alist structure) (car args)))
+                 (ra::alist-get (car args) (ra::dictionary-alist structure)))
                 ((list? structure)
                  (list-ref-or-void structure (ra::data (car args))))
                 (else (error "unsupported type" structure)))))
@@ -144,7 +221,7 @@
 
 
 (define (ra::get* structure . args)
-  (apply ra::get structure args))
+  (ra::get structure args))
 
 
 (define (ra::set-label obj key val)
@@ -176,11 +253,11 @@
   (define (check-rest args)
     (if (null? args)
       '()
-      (if (equal? (caar args) "&")
-        (if (or (list? (ra::data (cadar args)))
-                (ra::dictionary? (ra::data (cadar args))))
-          (cons (car args) (check-rest (cdr args)))
-          (error 'not-a-list-or-dict (car args))))))
+      (if (and (equal? (caar args) "&")
+               (not (or (list? (ra::data (cadar args)))
+                        (ra::dictionary? (ra::data (cadar args))))))
+        (error 'not-a-list-or-dict (car args))
+        (cons (car args) (check-rest (cdr args))))))
 
   (define (separate-pos-key args #!key (pos-cont identity))
     (if (null? args)
@@ -206,7 +283,7 @@
     (if (null? args)
       '()
       ((if (equal? "&" (caar args)) append cons)
-       (ra::data (cadar args))
+       (cadar args)
        (flatten-pos (cdr args)))))
 
   (define (flatten-kw args)
@@ -219,7 +296,7 @@
               (flatten-kw (cdr args))))))
 
   (let ((separated (separate-pos-key (check-rest args))))
-    (check-no-pos (cdr args))
+    (check-no-pos (cdr separated))
     (cons (flatten-pos (car separated))
           (flatten-kw (cdr separated)))))
 
@@ -230,15 +307,16 @@
 
 (define-structure ra::delayed-rest arg-ls rest-decl)
 
-(define-structure ra::callable-meta decl pa ns either-forbidden already-passed delayed-rest called kw-rest)
+(define-structure ra::callable-meta decl pa ns either-forbidden already-passed delayed-rest called kw-rest name)
 
 
-(define (ra::wrap-callable-in-meta callable decl)
-  (make-ra::obj
-    callable
-    (make-ra::callable-meta
-      decl #f ra::empty-dictionary ra::empty-dictionary '() #!void #f ra::empty-dictionary)
-    ra::empty-dictionary))
+(define (ra::init-callable-meta decl name)
+  (make-ra::callable-meta
+    decl #f ra::empty-dictionary ra::empty-dictionary '() #!void #f ra::empty-dictionary name))
+
+
+(define (ra::wrap-callable-in-meta callable meta)
+  (make-ra::obj callable meta ra::empty-dictionary))
 
 
 (define (ra::list*? obj) (list? (ra::data obj)))
@@ -247,7 +325,9 @@
 
 (define (ra::list-slice ls start end)
   (let ((dropped (drop ls (min (length ls) start))))
-    (take dropped (max 0 (- end start)))))
+    (if (equal? end +inf.0)
+      dropped
+      (take dropped (max 0 (- end start))))))
 
 
 (define-structure ra::ns current parent prefix)
@@ -268,7 +348,6 @@
   (define new-modules
     (cons (make-ra::ns ra::empty-dictionary #!void (list path))
           ra::modules))
-  (define new-modules-code (ra::dictionary-set path identity))
   (set! ra::modules new-modules))
 
 
@@ -289,7 +368,7 @@
     (error "unbound variable" sym)
     (let ((to-get (if (equal? gensym-counter #!void) sym gensym-counter)))
       (if (ra::dictionary-has? (ra::ns-current ns) to-get)
-        (force (ra::get (ra::ns-current ns) to-get))
+        (force (ra::get* (ra::ns-current ns) to-get))
         (ra::ns-ref (ra::ns-parent ns) sym)))))
 
 
@@ -316,7 +395,7 @@
 
 (define (ra::get-ns-prefix-by-sym ns sym)
   (define probably-fn
-    (with-exception-handler (lambda (e) #f) (ra::ns-ref ns sym)))
+    (with-exception-catcher (lambda (e) #f) (ra::ns-ref ns sym)))
 
   (if (not probably-fn)
     #f
@@ -336,7 +415,7 @@
 (define (ra::ns-set-var ns sym val #!key mut)
   ((if mut ra::ns-current-set! ra::ns-current-set)
    ns
-   (ra::dictionary
+   (make-ra::dictionary
      (let ((gensym-counter (ra::get-label sym 'gensym-counter)))
        (cons (cons (if (equal? gensym-counter #!void) sym gensym-counter) val)
              (ra::dictionary-alist (ra::ns-current ns)))))))
@@ -364,7 +443,7 @@
   ((map-over assignments)
    (lambda (assignment)
      (cons (car assignment)
-           (delay (getter (ra::data val) (cdr assignment)))))))
+           (getter val (cdr assignment))))))
 
 
 (define (ra::remove-fst-getter assignments)
@@ -376,7 +455,7 @@
 (define (ra::passable-as-kw assignments)
   (map car
     ((filter-over assignments)
-     (lambda (a) (= (length (cdr a) 1))))))
+     (lambda (a) (= (length (cdr a)) 1)))))
 
 
 (define (ra::push-to-ns meta assignments data)
@@ -384,7 +463,7 @@
     (ra::callable-meta-ns-set
       meta
       (ra::dictionary-merge
-        (ra::assignment->ns assignments data)
+        (make-ra::dictionary (ra::assignment->ns assignments data))
         (ra::callable-meta-ns meta)))
     (append (ra::callable-meta-already-passed meta)
             (ra::passable-as-kw assignments))))
@@ -394,8 +473,8 @@
   (ra::callable-meta-ns-set
     meta
     (ra::dictionary-merge
-      (ra::dictionary
-        (map (lambda (kv) (cons (car kv) (delay (cdr kv)))) alist))
+      (make-ra::dictionary
+        (map (lambda (kv) (cons (car kv) (cdr kv))) alist))
       (ra::callable-meta-ns meta))))
 
 
@@ -404,9 +483,10 @@
     (ra::callable-meta-ns-set
       meta
       (ra::dictionary-merge
-        (ra::assignment->ns
-          (assoc "#key-rest" (ra::callable-meta-decl meta))
-          (ra::callable-meta-kw-rest meta))
+        (make-ra::dictionary
+          (ra::assignment->ns
+            (cdr (assoc "#key-rest" (ra::callable-meta-decl meta)))
+            (ra::callable-meta-kw-rest meta)))
         (ra::callable-meta-ns meta)))
     ra::empty-dictionary))
 
@@ -419,7 +499,7 @@
       (ra::ns-set-var
         ns
         (caar arg-alist)
-        (delay ((cdar arg-alist) ns))))))
+        ((cdar arg-alist) ns)))))
 
 
 (define (ra::separate pred ls)
@@ -428,12 +508,12 @@
 
 
 (define (ra::call call-info callable args)
-  (let* ((callable (if (promise? callable) (force callable) callable))
+  (let* ((callable (force callable))
          (callable* (ra::data callable))
          (prepared-args (ra::prepare-call-args args))
          (positional (car prepared-args))
          (kw (cdr prepared-args))
-         (meta (ra::obj-hidden-meta callable)))
+         (meta (if (ra::obj? callable) (ra::obj-hidden-meta callable) #!void)))
 
     (define (pos-pop pos-decl item-spec)
       (define (list-slice? item-spec)
@@ -442,13 +522,13 @@
       (define to-sub
         (if (list-slice? item-spec)
           (- (cddr item-spec) (cadr item-spec))
-          (cdr item-spec)))
+          1))
 
       (define (shift item-spec)
         (if (list-slice? item-spec)
           (cons 'list-slice
             (cons (- (cadr item-spec) to-sub)
-                  (- (cdadr item-spec) to-sub)))
+                  (- (cddr item-spec) to-sub)))
           (cons 'list-ref (- (cdr item-spec) to-sub))))
 
       (define (item-spec-lt? i1 i2)
@@ -462,9 +542,17 @@
            ((filter-over pos-decl)
             (lambda (item) (not (equal? (cadr item) item-spec)))))
          (lambda (item)
-           (if (item-spec-lt? item item-spec)
+           (if (item-spec-lt? (cadr item) item-spec)
              item
-             (shift item-spec))))))
+             (cons (car item) (cons (shift (cadr item)) (cddr item))))))))
+
+    (define (push-delayed-rest meta)
+      (define delayed-rest (ra::callable-meta-delayed-rest meta))
+      (if (equal? #!void delayed-rest)
+        meta
+        (ra::callable-meta-delayed-rest-set
+          (ra::push-to-ns meta (cdr delayed-rest) (car delayed-rest))
+          #!void)))
 
     (define (pass-as-pos meta arg-val)
       (define (redo meta) (pass-as-pos meta arg-val))
@@ -473,7 +561,7 @@
 
       (if (not (equal? #!void delayed-rest))
         (let ((new-arg-ls (append (car delayed-rest) (list arg-val))))
-          (if (equal? (cdr (cddadr delayed-rest)) (length new-arg-ls))
+          (if (equal? (cddr (cadadr delayed-rest)) (length new-arg-ls))
             (ra::callable-meta-delayed-rest-set
               (ra::push-to-ns meta (cdr delayed-rest) new-arg-ls)
               #!void)
@@ -484,7 +572,7 @@
               (kw (ra::alist-get "#key" decl)))
           (if (not (null? pos))
             (let ((popped (pos-pop pos (cadar pos))))
-              (if (equal? (cadaar popped) 'list-slice)
+              (if (equal? (car (cadaar popped)) 'list-slice)
                 (redo
                   (ra::callable-meta-decl-set
                     (ra::callable-meta-delayed-rest-set
@@ -552,7 +640,7 @@
                (equal? (string-ref kw 0) #\$))
         (let* ((kw* (substring kw 1 (string-length kw)))
                (arg-val* (force (ra::get* (ra::callable-meta-ns meta) kw*))))
-          (with-exception-handler
+          (with-exception-catcher
             (lambda (e)
               (apply error
                 (append (list "during $-application" kw)
@@ -569,7 +657,7 @@
                 (ra::callable-meta-kw-rest-set
                   meta
                   (ra::dictionary-set
-                    (ra::callable-meta-kw-rest callable-meta) kw arg-val)))
+                    (ra::callable-meta-kw-rest meta) kw arg-val)))
               (ra::callable-meta-decl-set
                 (if (equal? (car res) "#positional")
                   (ra::push-to-ns
@@ -611,31 +699,51 @@
         (ra::push-kw-rest-to-ns
           (pass-all-kw (pass-all-pos meta positional) kw)))
 
+      (define (some-are-required? pos)
+        (and (not (null? pos)) (equal? 'list-ref (caadar pos))))
+
       (define new-decl (ra::callable-meta-decl new-meta))
-      (define new-pos (assoc "#positional" new-decl))
-      (define new-either (assoc "#either" new-decl))
+      (define new-pos (cdr (assoc "#positional" new-decl)))
+      (define new-either (cdr (assoc "#either" new-decl)))
 
       (define (call)
-        (callable*
-          (map car (append (cdr (assoc "#default" new-decl))
-                           (cdr (assoc "#key" new-decl))))
-          (ra::callable-meta-ns new-meta)))
+        (define ns
+          (ra::callable-meta-ns
+            ((if (ra::callable-meta-called meta)
+               identity
+               (lambda (meta) (ra::push-to-ns meta new-pos '())))
+             (push-delayed-rest new-meta))))
 
-      (if (ra::callable-meta-called meta)
-        (call)
-        (if (or (not (null? new-pos)) (not (null? new-either)))
-          (if (ra::callable-meta-pa new-meta)
-            (error "required args not passed" (list new-pos new-either) call-info)
-            (ra::obj-hidden-meta-set
-              callable
-              (ra::callable-meta-pa-set new-meta #t)))
-          (call))))
+        (with-exception-catcher
+          (lambda (e)
+            (apply error
+              `(,(error-exception-message e)
+                ,(ra::dictionary-pick ns (last call-info))
+                ,(append call-info (list (ra::callable-meta-name new-meta)))
+                ,@(error-exception-parameters e))))
+          (lambda ()
+            (callable*
+              (if (ra::callable-meta-called meta)
+                '()
+                (map car (append (cdr (assoc "#default" new-decl))
+                                 (cdr (assoc "#key" new-decl)))))
+              ns))))
 
-    (if (procedure? callable*)
-      (perform-call meta)
-      (if (or (list? callable*) (ra::dictionary? callable*))
-        (ra::get callable* args
-          stop-on-void:
-            (let ((stop-on-void (assoc "stop-on-void" kw)))
-              (and stop-on-void ((cdr stop-on-void) #!void))))
-        (error "not a callable value" callable* call-info)))))
+        (if (ra::callable-meta-called meta)
+          (call)
+          (if (or (some-are-required? new-pos) (not (null? new-either)))
+            (if (ra::callable-meta-pa new-meta)
+              (error "required args not passed" (list new-pos new-either) call-info)
+              (ra::obj-hidden-meta-set
+                callable
+                (ra::callable-meta-pa-set new-meta #t)))
+            (call))))
+
+      (if (procedure? callable*)
+        (perform-call meta)
+        (if (or (list? callable*) (ra::dictionary? callable*))
+          (ra::get callable* positional
+            stop-on-void:
+              (let ((stop-on-void (assoc "stop-on-nil" kw)))
+                (and stop-on-void ((cdr stop-on-void) #!void))))
+          (error "not a callable value" callable* call-info)))))

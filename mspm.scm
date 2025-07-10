@@ -6,6 +6,49 @@
 (include "runtime.scm")
 
 
+(define statements '("define" "define-macro" "do" "assign" "import" "assert"))
+
+
+(define primitive-forms
+  (append statements '("fn" "if" "let" "quote" "kv-quote" "and" "or")))
+
+
+(define forbidden-refs (append primitive-forms '("_" "&" "=")))
+
+
+
+(define sexp-ast-obj-pairs '())
+
+
+(define (add-sexp! sexp code-slice)
+  (set! sexp-ast-obj-pairs (cons (cons sexp code-slice) sexp-ast-obj-pairs)))
+
+
+(define (sexp-refs sexp)
+  (define (sexp-refs* sexp)
+    (if (not (list? sexp))
+      (if (and (string? sexp) (not (one-of? sexp forbidden-refs)))
+        (list sexp)
+        '())
+      (if (or (null? sexp)
+              (and (one-of? (car sexp) '("quote" "kv-quote"))
+                   (not (null? (cdr sexp)))
+                   (not (list? (cadr sexp)))))
+        '()
+        (apply append (map sexp-refs* sexp)))))
+  (unique (sexp-refs* sexp)))
+
+
+(define (sexp->code sexp)
+  (define res (assq sexp sexp-ast-obj-pairs))
+  (if (not res)
+    #!void
+    `(list ,(ast-obj-path (cdr res))
+           ,(code-ast-obj-lines-cols (cdr res))
+           ,(code-ast-obj->string (cdr res))
+           (quote ,(sexp-refs sexp)))))
+
+
 (define library-path "~/.local/share/red-apple-lisp/")
 
 
@@ -18,25 +61,14 @@
 
 
 (define (read-and-parse-module full-path)
-  (print "read-and-parse-module: " full-path "\n")
   (let ((result
     (with-exception-catcher
       identity
-      (lambda () (parse (read-file-string full-path))))))
+      (lambda () (parse (read-file-string full-path) full-path)))))
     (if (or (no-such-file-or-directory-exception? result)
             (parsing-error? result))
       (error (make-mspm-error full-path result))
       (make-module full-path result))))
-
-
-(define statements '("define" "define-macro" "do" "assign" "import" "assert"))
-
-
-(define primitive-forms
-  (append statements '("fn" "if" "let" "quote" "kv-quote" "and" "or")))
-
-
-(define forbidden-refs (append primitive-forms '("_" "&" "=")))
 
 
 (define (assert-not-forbidden-ref sexp)
@@ -61,17 +93,11 @@
       (wrap-into-list
         (if (equal? (ast-obj-type obj) #\{) "kv-quote" "quote"))))
   (wrap
-    (if (list? (ast-obj-data obj))
-      (map ast-obj->sexp (ast-obj-data obj))
-      (ast-obj-data obj))))
-
-  ;(if (list? (ast-obj-data obj))
-  ;  (let* ((result-data (map ast-obj->sexp (ast-obj-data obj)))
-  ;         (alist (apply append (map car result-data)))
-  ;         (wrapped (wrap (map cdr result-data))))
-  ;    (cons (cons (cons obj wrapped) alist) wrapped))
-  ;  (let ((wrapped (wrap (ast-obj-data obj))))
-  ;    (cons (list (cons obj wrapped)) wrapped))))
+    (let ((sexp (if (list? (ast-obj-data obj))
+                  (map ast-obj->sexp (ast-obj-data obj))
+                  (ast-obj-data obj))))
+      (add-sexp! sexp obj)
+      sexp)))
 
 
 (define (sexp->ast-obj sexp #!key (ast-alist '()))
@@ -85,7 +111,6 @@
 
 (define (prefixize-head-=-chain sexp-list #!key wrap-standalone)
   (define (assignment? ident) (equal? ident "="))
-  (print "prefixize-head-=-chain...\n")
 
   (if (assignment? (car sexp-list))
     (crash 'bad-= (car sexp-list))
@@ -108,7 +133,6 @@
 
 
 (define (prefixize-= sexp-list #!key wrap-standalone)
-  (print "prefixize-=: " sexp-list "\n")
   (if (null? sexp-list)
     '()
     (let ((res (prefixize-head-=-chain sexp-list
@@ -219,8 +243,6 @@
              (not (equal? "&" (car body))))
       (crash 'expected-rest-marker body))
 
-    (print "destructuring-identifiers..." "\n")
-
     (if (null? body)
       '()
       (if (equal? (car body) "&")
@@ -267,7 +289,7 @@
                       (if (quoted-list? sexp)
                         (make-level 'list-slice (car =-chain) (cons acc next-acc))
                         (if (null? rest)
-                          (make-level 'kv-diff (car =-chain) next-acc)
+                          (make-level 'kv-diff (car =-chain) acc)
                           (make-level 'kv-pick (car =-chain) getter-ls)))
                       next-level)
                     (inner (list (car sexp) rest)
@@ -421,9 +443,6 @@
 
 
   (define (one-of-kinds? obj) (one-of? obj kinds))
-  (display "fn-arguments: ")
-  (display args)
-  (display "\n")
 
   (let ((dups (get-duplicates-by
                 identity
@@ -645,7 +664,6 @@
 
 
 (define (get-module-full-path path #!key ci)
-  (print "get-module-full-path: " path "\n")
   (path-normalize
     (if (string-prefix? "/" path)
       path
@@ -657,14 +675,13 @@
 
 
 (define (read-and-parse-module-by-path! full-path)
-  (print "read-and-parse-module-by-path!: " full-path "\n")
-  (if (equal? #!void (find-one (equal-by full-path) modules-code))
+  (if (equal? #!void (find-one (equal-to full-path) modules-code))
     (let* ((parsed (read-and-parse-module full-path))
            (sexp-code
              (fn-if (not (equal? full-path (get-module-full-path "builtins.ra")))
                     (lambda (code) (cons '("import" ("quote" "builtins.ra")) code))
                     (cadr (ast-obj->sexp (module-ast-tree parsed))))))
-      (set! modules-code (cons sexp-code modules-code))
+      (set! modules-code (cons full-path modules-code))
       (let ((maybe-error
         (with-exception-catcher
           (lambda (e)
@@ -685,7 +702,6 @@
 
 
 (define (import-module! sexp ci)
-  (print "import-module:" (cadadr sexp) "\n")
   (if (or (not (= (length sexp) 2))
           (not (list? (cadr sexp)))
           (not (equal? (caadr sexp) "quote"))
@@ -702,7 +718,6 @@
 
 
 (define (ns->scheme sexp ci)
-  (print "ns->scheme..." "\n")
   (if (null? sexp)
     '()
     (let ((sexp (prepare-first-statement sexp)))
@@ -714,50 +729,78 @@
             (if (equal? "import" (caar sexp))
               (import-module! (car sexp) ci)
               (if (equal? "assert" (caar sexp))
-                (let ((expr (val->scheme `("and" ,@(cdar sexp)) ci)))
+                (let ((expr (val->scheme `("and" ,@(map (lambda (v) v) (cdar sexp))) ci)))
                   `(if (not ,expr)
-                     (error 'contract-violation (quote ,(cdar sexp)))))
+                     (error 'contract-violation ,(sexp->code (car sexp)))))
                 (val->scheme (car sexp) ci))))
           (val->scheme (car sexp) ci))
         (ns->scheme (cdr sexp) ci)))))
 
 
-(define (qs->scheme sexp ci #!key unpack (cont identity))
+(define (list->scheme sexp ci #!key unpack (cont identity))
   (define (next new-body unpack cont)
-    (qs->scheme (list (car sexp) new-body) ci unpack: unpack cont: cont))
+    (list->scheme (list (car sexp) new-body) ci unpack: unpack cont: cont))
 
   (define (push value)
-    (cont-cons (fn-if (not unpack) (wrap-into-list 'list) value) cont))
+    (cont-cons
+      (list 'unquote (fn-if (not unpack) (wrap-into-list 'list) value))
+      cont))
 
-  (print "qs->scheme..." "\n")
-
-  (if (not (or (quoted-list? sexp) (quoted-kv? sexp)))
-    (crash 'not-a-quoted-structure sexp)
+  (if (not (quoted-list? sexp))
+    (crash 'not-a-quoted-list sexp)
     (let ((body (cadr sexp)))
       (if (null? body)
         (if unpack
           (crash 'unexpected-rest-marker unpack)
-          (if (quoted-list? sexp)
-            `(apply append (quote ,(cont '())))
-            `(make-ra::dictionary (quote ,(reverse (cont '()))))))
+          (list 'apply 'append (list 'quasiquote (cont '()))))
         (if (equal? "&" (car body))
           (if unpack
             (crash 'unexpected-rest-marker (car body))
             (next (cdr body) (car body) cont))
-          (if (quoted-list? sexp)
-            (next (cdr body) #f (push (val->scheme (car body) ci)))
-            (let* ((=-chain-and-rest
-                     (prefixize-head-=-chain body wrap-standalone: #t))
-                   (=-chain (cdar =-chain-and-rest))
-                   (rest (cdr =-chain-and-rest)))
-              (if (> (length =-chain) 2)
-                (crash '=-chain-too-long =-chain)
-                (if (= (length =-chain) 1)
-                  (if (not (string? (car =-chain)))
-                    (crash 'not-an-unquoted-symbol (car =-chain))
-                    (next rest #f (push (cons (car =-chain) (val->scheme (car =-chain))))))
-                  (next rest #f
-                    (push (cons (val->scheme (car =-chain)) (val->scheme (cadr =-chain))))))))))))))
+          (next (cdr body) #f (push (val->scheme (car body) ci))))))))
+
+
+(define (kv->scheme sexp ci #!key unpack (acc '()))
+  (define (next new-body unpack acc)
+    (kv->scheme (list (car sexp) new-body) ci unpack: unpack acc: acc))
+
+  (define (push value)
+    (cons
+      (if unpack
+        (list 'ra::dictionary-alist (cdr value))
+        (list 'list (list 'cons (car value) (cdr value))))
+      acc))
+
+  (if (not (quoted-kv? sexp))
+    (crash 'not-a-quoted-kv sexp)
+    (let ((body (cadr sexp)))
+      (if (null? body)
+        (if unpack
+          (crash 'unexpected-rest-marker unpack)
+          (list 'make-ra::dictionary
+            (cons 'append acc)))
+        (if (equal? "&" (car body))
+          (if unpack
+            (crash 'unexpected-rest-marker (car body))
+            (next (cdr body) (car body) acc))
+          (let* ((=-chain-and-rest
+                   (prefixize-head-=-chain body wrap-standalone: #t))
+                 (=-chain (cdar =-chain-and-rest))
+                 (rest (cdr =-chain-and-rest)))
+            (if (> (length =-chain) 2)
+              (crash '=-chain-too-long =-chain)
+              (if (= (length =-chain) 1)
+                (if (not (string? (car =-chain)))
+                  (crash 'not-an-unquoted-symbol (car =-chain))
+                  (next rest #f (push (cons (car =-chain) (val->scheme (car =-chain) ci)))))
+                (next rest #f
+                  (push (cons (val->scheme (car =-chain) ci) (val->scheme (cadr =-chain) ci))))))))))))
+
+
+(define (qs->scheme sexp ci)
+  (cond ((quoted-list? sexp) (list->scheme sexp ci))
+        ((quoted-kv? sexp) (kv->scheme sexp ci))
+        (else (crash 'not-a-quoted-structure sexp))))
 
 
 (define (make-namespace ci inside #!key with-vars)
@@ -771,10 +814,6 @@
   (define new-ci (codegen-info-assignment-to-set ci #f))
   (define (continue ls)
     (map (lambda (a) (val->scheme a new-ci)) ls))
-
-  (display "val->scheme: ")
-  (display (list sexp ci))
-  (display "\n")
 
   (assert-is-value sexp)
 
@@ -814,32 +853,41 @@
                   (body (cdr hb))
                   (key-def-constructors
                     (map
-                      (lambda (kv)
-                        (cons (car kv)
-                              `((lambda () ,(val->scheme (cadr kv) new-ci)))))
+                      (lambda (kv) (list (car kv) (list 'unquote (val->scheme (cadr kv) new-ci))))
                       (append (cdr (assoc "#default" decl))
                               (cdr (assoc "#key" decl))))))
              `(let ()
                 (define (function kwargs locals)
                   ,(make-namespace
                      ci
-                     `((define kd (quote ,key-def-constructors))
+                     `((define kd ,(list 'quasiquote key-def-constructors))
+                       (define rec #f)
                        (for-each
-                         (lambda (k) (ra::ns-set-var namespace k ((cdr (assoc k kd))) mut: #t))
+                         (lambda (k)
+                           (if (not (ra::dictionary-has? (ra::ns-current namespace) k))
+                             (ra::ns-set-var namespace k (cadr (assoc k kd)) mut: #t)))
                          kwargs)
-                       (define rec
-                         (ra::callable-meta-ns-set
-                           (ra::callable-called-set
-                             (ra::wrap-callable-in-meta function (quote ,decl))
-                             #t)
-                           (ra::ns-current namespace)))
+                       (set! rec
+                         (ra::wrap-callable-in-meta
+                           function
+                           (ra::callable-meta-ns-set
+                             (ra::callable-meta-called-set
+                               (ra::init-callable-meta
+                                 (quote ,decl)
+                                 ,(if (codegen-info-assignment-to ci) (codegen-info-assignment-to ci) #!void))
+                               #t)
+                             (ra::ns-current namespace))))
                        (ra::ns-set-var namespace "#rec" rec mut: #t)
                        ,@(if (codegen-info-assignment-to ci)
                            (list `(ra::ns-set-var namespace ,(codegen-info-assignment-to ci) rec mut: #t))
                            '())
                        ,@(ns->scheme body (codegen-info-is-top-level-set new-ci #f)))
                      with-vars: 'locals))
-                (ra::wrap-callable-in-meta function (quote ,decl)))))
+                (ra::wrap-callable-in-meta
+                  function
+                  (ra::init-callable-meta
+                    (quote ,decl)
+                    ,(if (codegen-info-assignment-to ci) (codegen-info-assignment-to ci) #!void))))))
 
           (else
             (if (and (string? (car sexp))
@@ -854,7 +902,7 @@
                                 (append
                                   (but-last v)
                                   (list (list 'unquote (val->scheme (last v) new-ci)))))))))
-                `(ra::call #!void ,callable ,args)))))))))
+                `(ra::call ,(sexp->code sexp) ,callable ,args)))))))))
 
 
 (define (ra-compile file-path)
@@ -865,10 +913,15 @@
                  file-path
                  (string-append (current-directory) file-path))))
            (path-to-scm-file (string-append absolute-path ".tmp.scm")))
-      (read-and-parse-module-by-path! path-to-scm-file)
+      (read-and-parse-module-by-path! absolute-path)
       (call-with-output-file
-        absolute-path
-        (lambda (port) (write (ra::scheme-code-cont '()) port)))
+        path-to-scm-file
+        (let ((scheme-code
+                (cons (list 'include (get-module-full-path "runtime.scm"))
+                      (append (map (lambda (path) `(ra::add-module! ,path)) modules-code)
+                              (list (list 'ra::handle-crash (ra::scheme-code-cont '())))))))
+          (lambda (port)
+            (for-each (lambda (sexp) (write sexp port)) scheme-code))))
       (let ((gambit-output
         (with-input-from-process
           `(path: "gsc" arguments: ("-exe" ,path-to-scm-file))
@@ -877,12 +930,23 @@
           (error gambit-output))))))
 
 
-(define (main-fn)
+(define (ra-transpile-and-run file-path)
+  (ra::handle-crash
+    (let* ((absolute-path
+             (path-normalize
+               (if (equal? (string-ref file-path 0) #\/)
+                 file-path
+                 (string-append (current-directory) file-path))))
+           (path-to-scm-file (string-append absolute-path ".tmp.scm")))
+      (read-and-parse-module-by-path! absolute-path)
+      (eval
+        (append (map (lambda (path) `(ra::add-module! ,path)) modules-code)
+                (list (list 'ra::handle-crash (ra::scheme-code-cont '()))))))))
+
+
+(define (main)
   (let ((args (cdr (command-line))))
     (cond ((null? args) (error "no file to compile"))
           ((> (length args) 1) (error "one file expected for compilation"))
           ((< (string-length (car args)) 1) (error "empty file string"))
-          (else (ra-compile (car args))))))
-
-
-(main-fn)
+          (else (ra-transpile-and-run (car args))))))

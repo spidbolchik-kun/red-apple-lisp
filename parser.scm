@@ -7,8 +7,42 @@
 (define-structure position i line col)
 (define-structure cursor module-str position)
 (define-structure range module-str start end)
-(define-structure ast-obj type data range)
+(define-structure ast-obj type data range path)
 (define-structure parsing-error type marked)
+
+
+(define cursor-prev-alist '())
+
+(define (cursor-prev-set! cursor prev)
+  (set! cursor-prev-alist (cons (cons cursor prev) cursor-prev-alist)))
+
+(define (get-cursor-prev cursor)
+  (cdr (assq cursor cursor-prev-alist)))
+
+
+(define (code-ast-obj->string obj)
+  (if (equal? obj #!void)
+    #!void
+    (let ((range (ast-obj-range obj)))
+      (string-append
+        (make-string (- (position-col (range-start range)) 1) #\space)
+        (substring (range-module-str range)
+                   (position-i (range-start range))
+                   (position-i (range-end range)))))))
+
+(define (code-ast-obj-lines-cols obj)
+  (if (equal? obj #!void)
+    #!void
+    (let ((range (ast-obj-range obj)))
+      (string-append
+        (number->string (position-line (range-start range)))
+        "."
+        (number->string (position-col (range-start range)))
+        ":"
+        (number->string (position-line (range-end range)))
+        "."
+        (number->string (position-col (range-end range)))))))
+
 
 (define (init-cursor module-str)
   (make-cursor module-str (make-position 0 1 1)))
@@ -35,18 +69,21 @@
          (string-ref module-str index))))
 
 (define (cursor-step cursor)
-  (cursor-position-set cursor
-    (let ((position (cursor-position cursor)))
-      (position-i-set
-        (case (cursor-get-char cursor)
-          ((#f) (error "reached the end of string"))
-          ((#\newline)
-           (position-line-set
-             (position-col-set position 1)
-             (+ 1 (position-line position))))
-          (else (position-col-set position
-                  (+ 1 (position-col position)))))
-        (+ 1 (position-i position))))))
+  (define new-cursor
+    (cursor-position-set cursor
+      (let ((position (cursor-position cursor)))
+        (position-i-set
+          (case (cursor-get-char cursor)
+            ((#f) (error "reached the end of string"))
+            ((#\newline)
+             (position-line-set
+               (position-col-set position 1)
+               (+ 1 (position-line position))))
+            (else (position-col-set position
+                    (+ 1 (position-col position)))))
+          (+ 1 (position-i position))))))
+  (cursor-prev-set! new-cursor cursor)
+  new-cursor)
 
 (define interpreted-as-space
   '(#\alarm
@@ -111,7 +148,7 @@
         (else (or (string->number str) str))))
 
 
-(define (parse str)
+(define (parse str path)
   (define (run-parse type cursor-start #!key (kont identity) (wrap-in-ast-obj #t))
     (define cursor
       (if (one-of? type '(top-level #\( #\[ #\{))
@@ -123,10 +160,14 @@
               (not wrap-in-ast-obj)
               (one-of? type '(#\space #\x)))
         scan-result
-        (make-ast-obj
-          (if (equal? type #\') #\" type)
-          (car scan-result)
-          (init-range cursor (cdr scan-result)))))
+        (let ((type (if (equal? type #\') #\" type)))
+          (make-ast-obj
+            type
+            (car scan-result)
+            (init-range
+              (if (one-of? type '(#\( #\[ #\{ #\")) (get-cursor-prev cursor) cursor)
+              (cdr scan-result))
+            path))))
 
     (define (terminate)
       (if (equal? type #\space)

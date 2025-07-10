@@ -188,13 +188,6 @@
         (else (f obj))))
 
 
-(define (display-in-red-with-newline string #!key stderr)
-  (print port: (if stderr (current-error-port) (current-output-port))
-         "\033[31m"
-         string
-         "\033[0m\n"))
-
-
 (define-syntax quote-sexp-with-symbols->strings
   (syntax-rules ()
     ((_ e ...)
