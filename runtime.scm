@@ -11,11 +11,63 @@
 (define EXN #!void)
 
 
-(define (ra::display-in-red-with-newline string #!key (stderr #t))
+(define (ra::display-in-red string #!key (stderr #t))
   (print port: (if stderr (current-error-port) (current-output-port))
          "\033[91m"
          string
-         "\033[0m\n"))
+         "\033[0m"))
+
+
+(define (ra::display-err string) (display string (current-error-port)))
+
+
+(define (ra::display-error-head error-message-symbol)
+  (define message
+    (string-append
+      "(˵ ͡° ͜ʖ ͡°˵) "
+      (string-map (lambda (c) (if (equal? c #\-) #\space c))
+                  (symbol->string error-message-symbol))
+      " error\n"))
+  (define border (make-string (- (string-length message) 2) #\=))
+  (string-set! border (- (string-length border) 1) #\newline)
+  (ra::display-in-red
+    (string-append border message border)))
+
+
+(define (ra::display-error-code code range)
+  (define line-start (car range))
+  (define line-end (caddr range))
+  (define line-numbers
+    ((map-over (iota (+ (- line-end line-start) 1) line-start))
+     (lambda (n)
+       (define str (number->string n))
+       (string-append
+         (make-string
+           (- (string-length (number->string line-end))
+              (string-length str))
+           #\space)
+         str
+         " "))))
+
+  (define (enumerate-lines char-list numbers)
+    (if (null? numbers)
+      (list char-list)
+      (if (equal? (car char-list) #\newline)
+        (cons (cons #\newline (string->list (car numbers)))
+              (enumerate-lines (cdr char-list) (cdr numbers)))
+        (cons (list (car char-list))
+              (enumerate-lines (cdr char-list) numbers)))))
+
+  (display
+    (list->string
+      (apply append
+        (enumerate-lines
+          (append (string->list (car line-numbers))
+                  (string->list code))
+          (cdr line-numbers))))
+    (current-error-port))
+
+  (display "\n\n" (current-error-port)))
 
 
 (define (ra::handle-crash-fn thunk)
@@ -29,66 +81,79 @@
             (string-strip-beginning-spaces str i: (+ i 1)))))
 
       (set! EXN e)
+      (if (and (error-exception? e) (mspm-error? (error-exception-message e)))
+        (with-exception-catcher
+          (lambda (er) (set! e er))
+          (lambda () (apply error (mspm-error-data (error-exception-message e))))))
 
       (if (error-exception? e)
-        (if (equal? (error-exception-message e) 'contract-violation)
+        (if (symbol? (error-exception-message e))
           (let ()
-            (define callee-params (last (error-exception-parameters e)))
-            (define callee-module-path (car callee-params))
-            (define callee-code-range (cadr callee-params))
-            (define callee-expr (caddr callee-params))
+            (ra::display-error-head (error-exception-message e))
+            (cond
+              ((equal? (error-exception-message e) 'contract-violation)
+               (let ()
+                 (define callee-params (last (error-exception-parameters e)))
+                 (define callee-module-path (car callee-params))
+                 (define callee-code-range (cadr callee-params))
+                 (define callee-expr (caddr callee-params))
 
-            (define caller-params (cadr (error-exception-parameters e)))
-            (define caller-module-path (car caller-params))
-            (define caller-code-range (cadr caller-params))
-            (define caller-expr (caddr caller-params))
+                 (define caller-params (cadr (error-exception-parameters e)))
+                 (define caller-module-path (car caller-params))
+                 (define caller-code-range (cadr caller-params))
+                 (define caller-expr (caddr caller-params))
 
-            (define callee-name (last caller-params))
+                 (define callee-name (last caller-params))
 
-            (define callee-vars (car (error-exception-parameters e)))
+                 (define callee-vars (car (error-exception-parameters e)))
 
-            (ra::display-in-red-with-newline
-              (string-append
-                "=====================================\n"
-                "(˵ ͡° ͜ʖ ͡°˵) contract violation error\n"
-                "====================================="))
+                 (display (string-append "\033[96m" caller-module-path "\033[0m\n"))
 
-            (display
-              (string-append
-                caller-expr
-                "\n\nfrom "
-                caller-module-path
-                "@"
-                caller-code-range
-                "\n")
-              (current-error-port))
+                 (ra::display-error-code caller-expr caller-code-range)
 
-            (display "called \033[93m" (current-error-port))
-            (display callee-name (current-error-port))
-            (display "\n\033[0m" (current-error-port))
-            (display "violating \033[93m" (current-error-port))
-            (display (string-strip-beginning-spaces callee-expr) (current-error-port))
-            (display "\033[0m\n" (current-error-port))
-            (display
-              (string-append
-                "in "
-                callee-module-path
-                "@"
-                callee-code-range
-                "\n")
-              (current-error-port))
-            (display "\033[0m" (current-error-port))
+                 (display "called \033[93m" (current-error-port))
+                 (display callee-name (current-error-port))
+                 (display " \033[0m" (current-error-port))
+                 (display "violating\n" (current-error-port))
+                 (display (string-append "\033[96m" callee-module-path "\033[93m\n")
+                          (current-error-port))
+                 (ra::display-error-code
+                   ;(string-strip-beginning-spaces callee-expr)
+                   callee-expr
+                   callee-code-range)
 
+                 (display "\033[0mwhere:\n" (current-error-port))
 
-            (display "\n\033[0mwhere:\n" (current-error-port))
-
-            ((map-over (ra::dictionary-alist callee-vars))
-             (lambda (kv)
-               (display (car kv))
-               (display " = ")
-               (pp (cdr kv))))
-
-            (exit))
+                 ((map-over (ra::dictionary-alist callee-vars))
+                  (lambda (kv)
+                    (display (car kv) (current-error-port))
+                    (display " = " (current-error-port))
+                    (pp (cdr kv))))
+                 (exit)
+                 )
+               )
+              ((equal? (error-exception-message e) 'duplicate-definitions)
+               (let ()
+                 (define error-params (cdar (error-exception-parameters e)))
+                 (define error-module-path (car error-params))
+                 (define error-code-range (cadr (cadr error-params)))
+                 (define error-expr (caddr error-params))
+                 (display (string-append "\033[96m" error-module-path "\033[0m\n"))
+                 (ra::display-error-code error-expr error-code-range)
+                 (exit)
+                 )
+               )
+               (else
+                 (let ()
+                   (define error-params (cdar (error-exception-parameters e)))
+                   (define error-module-path (car error-params))
+                   (define error-code-range (cadr (cadr error-params)))
+                   (define error-expr (caddr error-params))
+                   (display (string-append "\033[96m" error-module-path "\033[0m\n"))
+                   (ra::display-error-code error-expr error-code-range)
+                   (exit)
+               ))
+            ))
           (error e))
         (error e)))
     thunk
@@ -169,7 +234,7 @@
 (define (ra::alist-get key alist #!key error-on-null)
   (if (null? alist)
     (if error-on-null
-      (error "no such key" key)
+      (error 'no-such-key key)
       #!void)
     (if (equal? (ra::data (caar alist)) (ra::data key))
       (cdar alist)
@@ -212,11 +277,11 @@
                  (ra::alist-get (car args) (ra::dictionary-alist structure)))
                 ((list? structure)
                  (list-ref-or-void structure (ra::data (car args))))
-                (else (error "unsupported type" structure)))))
+                (else (error 'unsupported-data structure)))))
           (inner new-structure (cdr args))))))
 
   (if (null? args)
-    (error "empty itemlist" structure args)
+    (error 'empty-item-list structure args)
     (inner structure args)))
 
 
@@ -354,7 +419,7 @@
 (define (ra::get-module path)
   (define (inner modules)
     (if (null? modules)
-      (error "unknown module" path)
+      (error 'unknown-module path)
       (if (equal? path (car (ra::ns-prefix (car modules))))
         (car modules)
         (inner (cdr modules)))))
@@ -365,7 +430,7 @@
   (define gensym-counter (ra::get-label sym 'gensym-counter))
 
   (if (equal? ns #!void)
-    (error "unbound variable" sym)
+    (error 'unbound-variable sym)
     (let ((to-get (if (equal? gensym-counter #!void) sym gensym-counter)))
       (if (ra::dictionary-has? (ra::ns-current ns) to-get)
         (force (ra::get* (ra::ns-current ns) to-get))
@@ -381,7 +446,7 @@
 
   (define (up ns pref)
     (if (equal? ns #!void)
-      (error "no namespace with such prefix" pref)
+      (error 'no-name-with-such-prefix pref)
       (if (equal? pref (ra::ns-prefix ns))
         ns
         (up (ra::ns-parent ns) pref))))
@@ -407,7 +472,7 @@
 
 (define (ra::add-macro-prefix! macro pref)
   (if (not (procedure? (ra::data macro)))
-    (error "macro should be a procedure" macro)
+    (error 'macro-should-be-a-procedure macro)
     (let ((new-mp (cons (cons macro pref) ra::macro-prefixes)))
       (set! ra::macro-prefixes new-mp))))
 
@@ -622,18 +687,18 @@
             (if (null? (car res))
               (next)
               (if (and (not allow-default) (equal? (caar decl) "#default"))
-                (error "default passed from outside" kw call-info)
+                (error 'default-passed-from-outside kw call-info)
                 (let ((new-arg-grp (cons (caar decl) (cdr res))))
                   (list (caar decl) (car res) (cont (cons new-arg-grp (cdr decl)))))))))))
 
     (define (pass-as-kw meta kw arg-val)
       (define is-rec (ra::callable-meta-called meta))
       (if (member kw (ra::callable-meta-already-passed meta))
-        (error "passed twice" kw arg-val call-info))
+        (error 'arg-passed-twice kw arg-val call-info))
 
       (let ((res (ra::get* (ra::callable-meta-either-forbidden meta) kw)))
         (if (not (equal? #!void res))
-          (error "either group already passed" kw res arg-val call-info)))
+          (error 'either-group-already-passed kw res arg-val call-info)))
 
       (if (and is-rec
                (> (string-length kw) 0)
@@ -653,7 +718,7 @@
           (let ((res (kw-pop (ra::callable-meta-decl meta) kw is-rec)))
             (if (not (car res))
               (if (null? (assoc "#key-rest" (ra::callable-meta-decl meta)))
-                (error "nonexistent keyword arg" kw arg-val call-info)
+                (error 'unexpected-keyword-arg kw arg-val call-info)
                 (ra::callable-meta-kw-rest-set
                   meta
                   (ra::dictionary-set
@@ -733,7 +798,7 @@
           (call)
           (if (or (some-are-required? new-pos) (not (null? new-either)))
             (if (ra::callable-meta-pa new-meta)
-              (error "required args not passed" (list new-pos new-either) call-info)
+              (error 'required-args-not-passed (list new-pos new-either) call-info)
               (ra::obj-hidden-meta-set
                 callable
                 (ra::callable-meta-pa-set new-meta #t)))
@@ -746,4 +811,4 @@
             stop-on-void:
               (let ((stop-on-void (assoc "stop-on-nil" kw)))
                 (and stop-on-void ((cdr stop-on-void) #!void))))
-          (error "not a callable value" callable* call-info)))))
+          (error 'not-a-callable-value callable* call-info)))))

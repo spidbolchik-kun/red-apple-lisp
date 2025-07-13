@@ -21,27 +21,49 @@
 
 
 (define (code-ast-obj->string obj)
+  (define (newline-or-end module-str i)
+    (if (or (= i (string-length module-str))
+            (equal? (string-ref module-str i) #\newline))
+      i
+      (newline-or-end module-str (+ i 1))))
+
   (if (equal? obj #!void)
     #!void
     (let ((range (ast-obj-range obj)))
       (string-append
-        (make-string (- (position-col (range-start range)) 1) #\space)
-        (substring (range-module-str range)
-                   (position-i (range-start range))
-                   (position-i (range-end range)))))))
+        "\033[90m"
+        (substring
+          (range-module-str range)
+          (- (position-i (range-start range))
+             (- (position-col (range-start range)) 1))
+          (position-i (range-start range)))
+        "\033[0m"
+        (substring
+          (range-module-str range)
+          (position-i (range-start range))
+          (position-i (range-end range)))
+        (let ((new-i (newline-or-end
+                       (range-module-str range)
+                       (position-i (range-end range)))))
+          (if (equal? (position-i (range-start range)) new-i)
+            ""
+            (string-append
+              "\033[90m"
+              (substring (range-module-str range)
+                         (position-i (range-end range))
+                         new-i)
+              "\033[0m")))))))
+
 
 (define (code-ast-obj-lines-cols obj)
   (if (equal? obj #!void)
     #!void
     (let ((range (ast-obj-range obj)))
-      (string-append
-        (number->string (position-line (range-start range)))
-        "."
-        (number->string (position-col (range-start range)))
-        ":"
-        (number->string (position-line (range-end range)))
-        "."
-        (number->string (position-col (range-end range)))))))
+      (list
+        (position-line (range-start range))
+        (position-col (range-start range))
+        (position-line (range-end range))
+        (position-col (range-end range))))))
 
 
 (define (init-cursor module-str)
