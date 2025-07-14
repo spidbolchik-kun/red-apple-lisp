@@ -668,7 +668,7 @@
 
 
 (define (var-getter ci val)
-  `(ra::ns-ref ,(ns-ref-from-ci ci) ,val))
+  `(ra::ns-ref ,(ns-ref-from-ci ci) ,val meta: ,(sexp->code val)))
 
 
 (define (get-module-full-path path #!key ci)

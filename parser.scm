@@ -307,4 +307,7 @@
                         (run-parse type new-cursor
                           kont: (lambda (acc) (kont (cons obj acc)))
                           wrap-in-ast-obj: #f))))))))))))
-  (finalize-parsing-error path (run-parse 'top-level (init-cursor str))))
+  (let ((result (run-parse 'top-level (init-cursor str))))
+    (if (parsing-error? result)
+      (finalize-parsing-error path result)
+      result)))
