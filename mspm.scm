@@ -74,7 +74,10 @@
       (lambda () (parse (read-file-string full-path) full-path)))))
     (if (or (no-such-file-or-directory-exception? result)
             (parsing-error? result))
-      (error (make-mspm-error full-path result))
+      (error
+        (make-mspm-error
+          full-path
+          (list (parsing-error-type result) (parsing-error-marked result))))
       (make-module full-path result))))
 
 
@@ -571,18 +574,6 @@
                (list? (ra::data (cadr data))))
         (apply append (map prefixed-in-destructuring (ra::data (cadr data))))
         '()))))
-
-
-;(define (read-and-parse-module! full-path)
-;  (if (equal? #!void (find-one (equal-by full-path) modules-code))
-;    (let ((parsed (read-and-parse-module full-path))
-;          (sexp-code
-;            (cons "do" (cadr (ast-obj->sexp (module-ast-tree parsed))))))
-;      (set! modules-code (cons parsed modules-code))
-;      (expand! (ast-obj->sexp (module-ast-tree parsed))
-;               (ra::ns ra::empty-dictionary #!void (list full-path))
-;               'statement-list
-;               #!void))))
 
 
 (define (assert-is-value sexp)

@@ -20,54 +20,61 @@
   (cdr (assq cursor cursor-prev-alist)))
 
 
-(define (code-ast-obj->string obj)
+(define (range->string range)
   (define (newline-or-end module-str i)
     (if (or (= i (string-length module-str))
             (equal? (string-ref module-str i) #\newline))
       i
       (newline-or-end module-str (+ i 1))))
 
+  (string-append
+    "\033[90m"
+    (substring
+      (range-module-str range)
+      (- (position-i (range-start range))
+         (- (position-col (range-start range)) 1))
+      (position-i (range-start range)))
+    "\033[0m"
+    (substring
+      (range-module-str range)
+      (position-i (range-start range))
+      (position-i (range-end range)))
+    (let ((new-i (newline-or-end
+                   (range-module-str range)
+                   (position-i (range-end range)))))
+      (if (equal? (position-i (range-start range)) new-i)
+        ""
+        (string-append
+          "\033[90m"
+          (substring (range-module-str range)
+                     (position-i (range-end range))
+                     new-i)
+          "\033[0m")))))
+
+
+(define (code-ast-obj->string obj)
   (if (equal? obj #!void)
     #!void
-    (let ((range (ast-obj-range obj)))
-      (string-append
-        "\033[90m"
-        (substring
-          (range-module-str range)
-          (- (position-i (range-start range))
-             (- (position-col (range-start range)) 1))
-          (position-i (range-start range)))
-        "\033[0m"
-        (substring
-          (range-module-str range)
-          (position-i (range-start range))
-          (position-i (range-end range)))
-        (let ((new-i (newline-or-end
-                       (range-module-str range)
-                       (position-i (range-end range)))))
-          (if (equal? (position-i (range-start range)) new-i)
-            ""
-            (string-append
-              "\033[90m"
-              (substring (range-module-str range)
-                         (position-i (range-end range))
-                         new-i)
-              "\033[0m")))))))
+    (range->string (ast-obj-range obj))))
+
+
+(define (range-lines-cols range)
+  (list
+    (position-line (range-start range))
+    (position-col (range-start range))
+    (position-line (range-end range))
+    (position-col (range-end range))))
 
 
 (define (code-ast-obj-lines-cols obj)
   (if (equal? obj #!void)
     #!void
-    (let ((range (ast-obj-range obj)))
-      (list
-        (position-line (range-start range))
-        (position-col (range-start range))
-        (position-line (range-end range))
-        (position-col (range-end range))))))
+    (range-lines-cols (ast-obj-range obj))))
 
 
 (define (init-cursor module-str)
   (make-cursor module-str (make-position 0 1 1)))
+
 
 (define (init-range c0 c1)
   (if (not (eq? (cursor-module-str c0)
@@ -168,6 +175,25 @@
   (cond ((string=? str "#f") #f)
         ((string=? str "#t") #t)
         (else (or (string->number str) str))))
+
+
+(define (finalize-parsing-error path parsing-error)
+  (let ((name (car (parsing-error-type parsing-error)))
+        (type (cadr (parsing-error-type parsing-error)))
+        (marked (parsing-error-marked parsing-error)))
+    (make-parsing-error
+      (string->symbol
+        (string-append
+          (symbol->string name)
+          " "
+          (if (char? type) (string type) (symbol->string type))))
+      (let ((range (if (range? marked)
+                     range
+                     (init-range marked (cursor-step marked)))))
+        `(list ,path
+               (quote ,(range-lines-cols range))
+               ,(range->string range)
+               (quote '()))))))
 
 
 (define (parse str path)
@@ -281,4 +307,4 @@
                         (run-parse type new-cursor
                           kont: (lambda (acc) (kont (cons obj acc)))
                           wrap-in-ast-obj: #f))))))))))))
-  (run-parse 'top-level (init-cursor str)))
+  (finalize-parsing-error path (run-parse 'top-level (init-cursor str))))

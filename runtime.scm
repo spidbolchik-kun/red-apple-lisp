@@ -84,7 +84,8 @@
       (if (and (error-exception? e) (mspm-error? (error-exception-message e)))
         (with-exception-catcher
           (lambda (er) (set! e er))
-          (lambda () (apply error (mspm-error-data (error-exception-message e))))))
+          (lambda ()
+            (apply error (mspm-error-data (error-exception-message e))))))
 
       (if (error-exception? e)
         (if (symbol? (error-exception-message e))
@@ -114,7 +115,7 @@
                  (display "called \033[93m" (current-error-port))
                  (display callee-name (current-error-port))
                  (display " \033[0m" (current-error-port))
-                 (display "violating\n" (current-error-port))
+                 (display "violating\n\n" (current-error-port))
                  (display (string-append "\033[96m" callee-module-path "\033[93m\n")
                           (current-error-port))
                  (ra::display-error-code
