@@ -2,7 +2,6 @@
 
 ; module system and primitive macros
 
-
 (include "utils.scm")
 (include "parser.scm")
 (include "runtime.scm")
@@ -61,7 +60,7 @@
            (quote ,(sexp-refs sexp)))))
 
 
-(define library-path "~/.local/share/red-apple-lisp/")
+;(define library-path (car (read-file-string-list "library-path")))
 
 
 (define-structure macro-expansion original processed)
