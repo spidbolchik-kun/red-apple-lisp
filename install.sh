@@ -3,7 +3,7 @@ eval RA_PATH=$(cat library-path)
 mkdir -p "$RA_PATH"
 gsc -prelude "(define library-path \"$RA_PATH\")" mspm.scm
 mv mspm.o1 "$RA_PATH"
-gsc -prelude "(define library-path \"$RA_PATH\")" -o ra ra.scm
+gsc -exe -prelude "(define library-path \"$RA_PATH\")" -o ra ra.scm
 mkdir ~/.local/bin
 mv ra ~/.local/bin/
 cp runtime.scm "$RA_PATH"
