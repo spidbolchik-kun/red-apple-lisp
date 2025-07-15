@@ -84,13 +84,6 @@
                 (cursor-position c0)
                 (cursor-position c1))))
 
-(define (parsing-error-wrap parsing-error cursor-start)
-  (parsing-error-set-marked parsing-error
-    (let ((marked (parsing-error-marked parsing-error)))
-      (if (not marked)
-        cursor-start
-        (init-range cursor-start marked)))))
-
 (define (cursor-get-char cursor)
   (let ((index (position-i (cursor-position cursor)))
         (module-str (cursor-module-str cursor)))

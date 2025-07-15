@@ -1,9 +1,14 @@
+#!/usr/local/Gambit/bin/gsi-script
+
 ; module system and primitive macros
 
 
 (include "utils.scm")
 (include "parser.scm")
 (include "runtime.scm")
+
+
+(define range #!void)
 
 
 (define statements '("define" "define-macro" "do" "assign" "import" "assert"))
@@ -949,12 +954,7 @@
       (read-and-parse-module-by-path! absolute-path)
       (eval
         (append (map (lambda (path) `(ra::add-module! ,path)) modules-code)
-                (list (list 'ra::handle-crash (ra::scheme-code-cont '()))))))))
-
-
-(define (main)
-  (let ((args (cdr (command-line))))
-    (cond ((null? args) (error "no file to compile"))
-          ((> (length args) 1) (error "one file expected for compilation"))
-          ((< (string-length (car args)) 1) (error "empty file string"))
-          (else (ra-transpile-and-run (car args))))))
+                (list
+                  (list
+                    'ra::handle-crash-fn
+                    (list 'lambda '() (ra::scheme-code-cont '())))))))))

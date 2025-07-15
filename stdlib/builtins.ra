@@ -1,0 +1,270 @@
+(define (boolean? value) (##boolean? value))
+(define (number? value) (##number? value))
+(define (string? value) (##string? value))
+(define (list? value) (##list? value))
+(define (kv? value) (ra::dictionary? (ra::data value)))
+(define (not value) (##not value))
+(define (nil? value) (##equal? value (##void)))
+(define nil (##void))
+
+
+(define (const value) (fn (& args #key & rest) value))
+(define (identity value) value)
+
+
+(define (empty? value)
+  (assert (or (list? value) (kv? value)))
+  (if (list? value)
+    (##null? value)
+    (ra::dictionary-empty? (ra::data value))))
+
+
+(define (push value to)
+  (assert (list? to))
+  (##cons value to))
+
+
+(define (push-back value list)
+  (assert (list? list))
+  (if (empty? list)
+    [value]
+    (push (head list) (push-back $list: tail))))
+
+
+(define (head list)
+  (assert (list? list))
+  (##car list))
+
+
+(define (tail list)
+  (assert (list? list) (not (empty? list)))
+  (##cdr list))
+
+
+(define (last list)
+  (assert (list? list) (not (empty? list)))
+  (if (empty? (tail list))
+    (head list)
+    (last (tail list))))
+
+
+(define (but-last list)
+  (assert (list? list))
+  (if (or (empty? list) (empty? (tail list)))
+    list
+    (push (head list) (but-last (tail list)))))
+
+
+(define (all? predicate of = [head & tail])
+  (if (empty? of)
+    #t
+    (and (predicate head) (all? of: tail))))
+
+
+(define (any? predicate of = [head & tail])
+  (if (empty? of)
+    #f
+    (or (predicate head) (any? of: tail))))
+
+
+(define (fold-right with-fn over #key with-final-value)
+  (define (fold-right with-fn over with-final-value)
+    (if (empty? over)
+      with-final-value
+      (with-fn (head over) (fold-right $over: tail))))
+
+  (assert (list? over))
+  (if (nil? with-final-value)
+    (let (assert (not (empty? over)))
+      (fold-right with-fn (but-last over) (last over)))
+    (fold-right with-fn over with-final-value)))
+
+
+(define (all-sequential-values? are in = [first & rest = [second]])
+  (or (empty? rest)
+      (and (are first second) (all-sequential-values? in: rest))))
+
+
+(define list:==
+  (all-sequential-values? are: (fn (x y) (##equal? x y))))
+
+
+(define (list:!= args) (not (list:== args)))
+
+
+(define list:+
+  (let add2 = (fn (x y) (assert (number? x) (number? y)) (##+ x y))
+    (fold-right add2 with-final-value: 0)))
+
+
+(define list:*
+  (let mul2 = (fn (x y) (assert (number? x) (number? y)) (##* x y))
+    (fold-right mul2 with-final-value: 1)))
+
+
+(define (+ x y & rest) (list:+ [x y & rest]))
+
+
+(define (* x y & rest) (list:* [x y & rest]))
+
+
+(define (== x y & rest) (list:== [x y & rest]))
+
+
+(define (!= x y & rest) (list:!= [x y & rest]))
+
+
+(define (length list)
+  (assert (list? list))
+  (if (empty? list)
+    0
+    (+ 1 (length (tail list)))))
+
+
+(define (nil-or? predicate value)
+  (or (nil? value) (predicate value)))
+
+
+(define (list:< list)
+  (assert (all? number? list))
+  (all-sequential-values? (fn (x y) (##< x y)) list))
+
+
+(define (list:<= list)
+  (assert (all? number? list))
+  (all-sequential-values? (fn (x y) (##<= x y)) list))
+
+
+(define (list:> list)
+  (assert (all? number? list))
+  (all-sequential-values? (fn (x y) (##> x y)) list))
+
+
+(define (list:>= list)
+  (assert (all? number? list))
+  (all-sequential-values? (fn (x y) (##>= x y)) list))
+
+
+(define (< value & rest)
+  (if (empty? rest)
+    (fn (& rest) (list:< (push-back value rest)))
+    (list:< [value & rest])))
+
+
+(define (<= value & rest)
+  (if (empty? rest)
+    (fn (& rest) (list:<= (push-back value rest)))
+    (list:<= [value & rest])))
+
+
+(define (> value & rest)
+  (if (empty? rest)
+    (fn (& rest) (list:> (push-back value rest)))
+    (list:> [value & rest])))
+
+
+(define (>= value & rest)
+  (if (empty? rest)
+    (fn (& rest) (list:>= (push-back value rest)))
+    (list:>= [value & rest])))
+
+
+(define (reverse list #default acc = [])
+  (assert (list? list))
+  (if (empty? list)
+    acc
+    (reverse (tail list) $acc: (push (head list)))))
+
+
+(define (apply-if bool-or-predicate function to)
+  predicate = (if (boolean? bool-or-predicate) (const bool-or-predicate) bool-or-predicate)
+  (if (predicate to) (function to) to))
+
+
+(define (fold-left with-fn over #key with-initial-value)
+  (define (fold-left with-fn over with-initial-value)
+    (if (empty? over)
+      with-initial-value
+      (fold-left with-initial-value: (with-fn with-initial-value (head over)) $over: tail)))
+
+  (assert (list? over))
+  (if (nil? with-initial-value)
+    (let (assert (not (empty? over)))
+      (fold-left with-fn (tail over) (head over)))
+    (fold-left with-fn over with-initial-value)))
+
+
+(define list:-
+  (let sub2 = (fn (x y) (assert (number? x) (number? y)) (##- x y))
+    (fold-left sub2 with-initial-value: nil)))
+
+
+(define list:/
+  (let div2 = (fn (x y) (assert (number? x) (number? y)) (##/ x y))
+    (fold-left div2 with-initial-value: nil)))
+
+
+(define (- & args #key & {from})
+  args* = (apply-if (not (nil? from)) (push from) args)
+  (if (>= (length args*) 2)
+    (list:- args*)
+    (if (not (nil? from))
+      (fn (& args) (list:- (push from args)))
+      (fn (arg) (list:- (push arg args))))))
+
+
+(define (/ & args #key & {dividend})
+  args* = (apply-if (not (nil? dividend)) (push dividend) args)
+  (if (>= (length args*) 2)
+    (list:/ args*)
+    (if (not (nil? dividend))
+      (fn (& args) (list:/ (push dividend args)))
+      (fn (arg) (list:/ (push arg args))))))
+
+
+(define (map with over & over-rest)
+  (define (map-one f list = [head & tail])
+    (if (empty? list)
+      []
+      (push (f head) (map-one f tail))))
+  lists = (push over over-rest)
+  (if (any? empty? lists)
+    []
+    (push (with & (map-one head lists))
+          (map with & (map-one tail lists)))))
+
+
+(define (filter by over = [head & tail])
+  (if (empty? over)
+    []
+    (apply-if (by head) (push head) (filter over: tail))))
+
+
+(define (display! & values)
+  (map (fn (value) (##display value)) values)
+  nil)
+
+
+(define (o left right & rest)
+  (fold-right (fn (f0 f1) (fn (arg) (f0 (f1 arg))))
+              [left right & rest]
+              with-final-value: nil))
+
+
+(define (compose left right & rest)
+  (fold-left (fn (f0 f1) (fn (arg) (f1 (f0 arg))))
+             [left right & rest]
+             with-initial-value: nil))
+
+
+(define (modulo & args #key & {dividend})
+  (define (modulo-2 dividend divisor)
+    (assert (number? dividend) (number? divisor))
+    (##modulo dividend divisor))
+  args* = (apply-if (not (nil? dividend)) (push dividend) args)
+  (assert (> (length args*) 0) (< (length args*) 3))
+  (if (== (length args*) 2)
+    (modulo-2 & args*)
+    (if (nil? dividend)
+      (fn (dividend) (modulo-2 dividend (head args*)))
+      (fn (divisor) (modulo-2 dividend divisor)))))
