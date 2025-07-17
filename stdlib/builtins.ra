@@ -268,3 +268,7 @@
     (if (nil? dividend)
       (fn (dividend) (modulo-2 dividend (head args*)))
       (fn (divisor) (modulo-2 dividend divisor)))))
+
+
+(define (item & path)
+  (fn (value) (value & path)))

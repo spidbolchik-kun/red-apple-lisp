@@ -212,6 +212,11 @@
                  (exit)
                )
               )
+              ((equal? (error-exception-message e) 'unsupported-data)
+               (ra::display-err (error-exception-parameters e))
+               (ra::display-err "\n")
+               (exit)
+              )
                (else
                  (let ()
                    (define error-params (cdar (error-exception-parameters e)))
@@ -347,7 +352,8 @@
                  (ra::alist-get (car args) (ra::dictionary-alist structure)))
                 ((list? structure)
                  (list-ref-or-void structure (ra::data (car args))))
-                (else (error 'unsupported-data structure)))))
+                (else
+                  (error 'unsupported-data structure args)))))
           (inner new-structure (cdr args))))))
 
   (if (null? args)

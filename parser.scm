@@ -181,12 +181,14 @@
           " "
           (if (char? type) (string type) (symbol->string type))))
       (let ((range (if (range? marked)
-                     range
+                     marked
                      (init-range marked (cursor-step marked)))))
         `(list ,path
                (quote ,(range-lines-cols range))
                ,(range->string range)
                (quote '()))))))
+
+
 
 
 (define (parse str path)

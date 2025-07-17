@@ -1,3 +1,5 @@
+(define library-path (car (read-file-string-list "library-path")))
+
 (define (main . args)
   (load (string-append library-path "mspm"))
   (cond ((null? args) (ra::display-in-red "specify file to run\n"))

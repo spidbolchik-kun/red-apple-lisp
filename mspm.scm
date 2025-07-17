@@ -7,9 +7,6 @@
 (include "runtime.scm")
 
 
-(define range #!void)
-
-
 (define statements '("define" "define-macro" "do" "assign" "import" "assert"))
 
 
@@ -60,7 +57,7 @@
            (quote ,(sexp-refs sexp)))))
 
 
-;(define library-path (car (read-file-string-list "library-path")))
+(define library-path (car (read-file-string-list "library-path")))
 
 
 (define-structure macro-expansion original processed)
@@ -940,6 +937,18 @@
           read-line)))
         (if (not (equal? gambit-output #!eof))
           (error gambit-output))))))
+
+
+(define (ra-transpile file-path)
+  (ra::handle-crash
+    (let* ((absolute-path
+             (path-normalize
+               (if (equal? (string-ref file-path 0) #\/)
+                 file-path
+                 (string-append (current-directory) file-path))))
+           (path-to-scm-file (string-append absolute-path ".tmp.scm")))
+      (read-and-parse-module-by-path! absolute-path)
+      (ra::scheme-code-cont '()))))
 
 
 (define (ra-transpile-and-run file-path)
