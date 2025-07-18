@@ -245,16 +245,14 @@
   nil)
 
 
-(define (o left right & rest)
-  (fold-right (fn (f0 f1) (fn (arg) (f0 (f1 arg))))
-              [left right & rest]
-              with-final-value: nil))
-
-
 (define (compose left right & rest)
   (fold-left (fn (f0 f1) (fn (arg) (f1 (f0 arg))))
              [left right & rest]
              with-initial-value: nil))
+
+
+(define (o left right & rest)
+  (compose & (reverse [left right & rest])))
 
 
 (define (modulo & args #key & {dividend})
@@ -271,3 +269,8 @@
 
 
 (define (item & path) (fn (value) (value & path)))
+
+
+(define (read-file-string! path)
+  (assert (string? path))
+  (##read-file-string path))

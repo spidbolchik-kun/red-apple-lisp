@@ -832,7 +832,9 @@
   (if (quoted-structure? sexp)
     (qs->scheme sexp new-ci)
     (if (string? sexp)
-      (if (or (string-prefix? "##" sexp) (string-prefix? "ra::" sexp))
+      (if (or (string-prefix? "##" sexp)
+              (string-prefix? "ra::" sexp)
+              (string-prefix? "make-ra::" sexp))
         (string->symbol sexp)
         (var-getter ci sexp))
       (if (not (list? sexp))
@@ -919,21 +921,31 @@
                 `(ra::call ,(sexp->code sexp) ,callable ,args)))))))))
 
 
+
+(define (get-absolute-path file-path)
+  (path-normalize
+    (if (equal? (string-ref file-path 0) #\/)
+      file-path
+      (string-append (current-directory) file-path))))
+
+
+(define (get-scheme-code)
+  `(,@(map (lambda (path) `(ra::add-module! ,path)) modules-code)
+    (ra::handle-crash-fn
+      (lambda ()
+        ,@(ra::scheme-code-cont '())))))
+
+
 (define (ra-compile file-path)
   (ra::handle-crash
-    (let* ((absolute-path
-             (path-normalize
-               (if (equal? (string-ref file-path 0) #\/)
-                 file-path
-                 (string-append (current-directory) file-path))))
+    (let* ((absolute-path (get-absolute-path file-path))
            (path-to-scm-file (string-append absolute-path ".tmp.scm")))
       (read-and-parse-module-by-path! absolute-path)
       (call-with-output-file
         path-to-scm-file
         (let ((scheme-code
-                (cons (list 'include (get-module-full-path "runtime.scm"))
-                      (append (map (lambda (path) `(ra::add-module! ,path)) modules-code)
-                              (list (list 'ra::handle-crash (ra::scheme-code-cont '())))))))
+                (cons `(include ,(get-module-full-path "runtime.scm"))
+                      (get-scheme-code))))
           (lambda (port)
             (for-each (lambda (sexp) (write sexp port)) scheme-code))))
       (let ((gambit-output
@@ -944,37 +956,14 @@
           (error gambit-output))))))
 
 
-(define (ra-transpile file-path)
-  (ra::handle-crash
-    (let* ((absolute-path
-             (path-normalize
-               (if (equal? (string-ref file-path 0) #\/)
-                 file-path
-                 (string-append (current-directory) file-path))))
-           (path-to-scm-file (string-append absolute-path ".tmp.scm")))
-      (read-and-parse-module-by-path! absolute-path)
-      (ra::scheme-code-cont '()))))
-
-
 (define code-to-eval #!void)
 
 
 (define (ra-transpile-and-run file-path)
   (ra::handle-crash
-    (let* ((absolute-path
-             (path-normalize
-               (if (equal? (string-ref file-path 0) #\/)
-                 file-path
-                 (string-append (current-directory) file-path))))
+    (let* ((absolute-path (get-absolute-path file-path))
            (path-to-scm-file (string-append absolute-path ".tmp.scm")))
       (read-and-parse-module-by-path! absolute-path)
-      (let ((scheme-code
-              (append (cons 'begin (map (lambda (path) `(ra::add-module! ,path)) modules-code))
-                      (list
-                        (list
-                          'ra::handle-crash-fn
-                          (list 'lambda '()
-                            (cons 'begin
-                              (ra::scheme-code-cont '()))))))))
+      (let ((scheme-code (cons 'begin (get-scheme-code))))
         (set! code-to-eval scheme-code)
         (eval code-to-eval)))))
