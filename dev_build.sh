@@ -3,7 +3,7 @@
 
 set -e
 eval RA_PATH=$(cat library-path)
-[ -d "$RA_PATH" ] || ln -s stdlib "$RA_PATH"
+[ -d "$RA_PATH" ] || ln -s stdlib "$(realpath "$RA_PATH")"
 gsc -prelude "(define library-path \"$RA_PATH\")" mspm.scm
 rm -f stdlib/mspm.o1
 mv mspm.o1 stdlib
