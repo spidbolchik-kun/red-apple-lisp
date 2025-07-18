@@ -57,7 +57,7 @@
            (quote ,(sexp-refs sexp)))))
 
 
-(define library-path (car (read-file-string-list "library-path")))
+;(define library-path (car (read-file-string-list "library-path")))
 
 
 (define-structure macro-expansion original processed)

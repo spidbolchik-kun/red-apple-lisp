@@ -1,4 +1,4 @@
-(define library-path (car (read-file-string-list "library-path")))
+;(define library-path (car (read-file-string-list "library-path")))
 
 (define (main . args)
   (load (string-append library-path "mspm"))
