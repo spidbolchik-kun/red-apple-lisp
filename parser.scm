@@ -5,19 +5,10 @@
 
 
 (define-structure position i line col)
-(define-structure cursor module-str position)
+(define-structure cursor module-str position prev)
 (define-structure range module-str start end)
 (define-structure ast-obj type data range path)
 (define-structure parsing-error type marked)
-
-
-(define cursor-prev-alist '())
-
-(define (cursor-prev-set! cursor prev)
-  (set! cursor-prev-alist (cons (cons cursor prev) cursor-prev-alist)))
-
-(define (get-cursor-prev cursor)
-  (cdr (assq cursor cursor-prev-alist)))
 
 
 (define (range->string range)
@@ -73,7 +64,7 @@
 
 
 (define (init-cursor module-str)
-  (make-cursor module-str (make-position 0 1 1)))
+  (make-cursor module-str (make-position 0 1 1) #!void))
 
 
 (define (init-range c0 c1)
@@ -91,7 +82,7 @@
          (string-ref module-str index))))
 
 (define (cursor-step cursor)
-  (define new-cursor
+  (cursor-prev-set
     (cursor-position-set cursor
       (let ((position (cursor-position cursor)))
         (position-i-set
@@ -103,9 +94,8 @@
                (+ 1 (position-line position))))
             (else (position-col-set position
                     (+ 1 (position-col position)))))
-          (+ 1 (position-i position))))))
-  (cursor-prev-set! new-cursor cursor)
-  new-cursor)
+          (+ 1 (position-i position)))))
+    cursor))
 
 (define interpreted-as-space
   '(#\alarm
@@ -189,8 +179,6 @@
                (quote '()))))))
 
 
-
-
 (define (parse str path)
   (define (run-parse type cursor-start #!key (kont identity) (wrap-in-ast-obj #t))
     (define cursor
@@ -208,7 +196,7 @@
             type
             (car scan-result)
             (init-range
-              (if (one-of? type '(#\( #\[ #\{ #\")) (get-cursor-prev cursor) cursor)
+              (if (one-of? type '(#\( #\[ #\{ #\")) (cursor-prev cursor) cursor)
               (cdr scan-result))
             path))))
 
