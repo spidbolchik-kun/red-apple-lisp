@@ -106,10 +106,13 @@
         (if (equal? (ast-obj-type obj) #\{) "kv-quote" "quote"))))
   (let ((wrapped
     (wrap
-      (let ((sexp (if (list? (ast-obj-data obj))
-                    ((map-over (ast-obj-data obj))
-                     (lambda (child) (ast-obj->sexp child parent: obj)))
-                    (ast-obj-data obj))))
+      (let ((sexp
+        (if (list? (ast-obj-data obj))
+          (map (lambda (child) (ast-obj->sexp child parent: obj))
+               (filter (lambda (child) (not (equal? (ast-obj-type child) #\;)))
+                       (ast-obj-data obj)))
+          (ast-obj-data obj))
+        ))
         (if parent (ast-obj-lvl-up-set! sexp parent))
         (add-sexp! sexp obj)
         sexp))))

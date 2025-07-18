@@ -203,7 +203,7 @@
     (define (terminate)
       (if (equal? type #\space)
         #f
-        (if (one-of? type '(unquoted-symbol #\' #\"))
+        (if (one-of? type '(unquoted-symbol #\' #\" #\;))
           (let ((term (list->string (filter identity (kont '())))))
             (if (equal? type 'unquoted-symbol)
               (parse-unquoted-symbol term)
@@ -228,7 +228,8 @@
            (wrap (cons (terminate) cursor)))
 
           ((or (equal? char (get-closing-char type))
-               (and (equal? type #\x) (equal? char #\;)))
+               (and (equal? type #\x) (equal? char #\;))
+               (and (equal? type #\;) (equal? char #\newline)))
            (wrap (cons (terminate) (cursor-step cursor))))
 
           (else
@@ -266,7 +267,7 @@
                 (let ((scan
                   (cond ((one-of? type '(top-level #\( #\[ #\{))
                          (let ((new-type
-                                 (if (one-of? char '(#\( #\[ #\{ #\" #\'))
+                                 (if (one-of? char '(#\( #\[ #\{ #\" #\' #\;))
                                    char
                                    'unquoted-symbol)))
                            (run-parse
