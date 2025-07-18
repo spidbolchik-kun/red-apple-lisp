@@ -270,5 +270,4 @@
       (fn (divisor) (modulo-2 dividend divisor)))))
 
 
-(define (item & path)
-  (fn (value) (value & path)))
+(define (item & path) (fn (value) (value & path)))

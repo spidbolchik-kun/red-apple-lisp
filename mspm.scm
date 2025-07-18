@@ -903,7 +903,9 @@
 
           (else
             (if (and (string? (car sexp))
-                     (or (string-prefix? "##" (car sexp)) (string-prefix? "ra::" (car sexp))))
+                     (or (string-prefix? "##" (car sexp))
+                         (string-prefix? "ra::" (car sexp))
+                         (string-prefix? "make-ra::" (car sexp))))
               `(,(string->symbol (car sexp))
                  ,@(map (lambda (arg) (val->scheme arg new-ci)) (cdr sexp)))
               (let* ((callable (val->scheme (car sexp) new-ci))
@@ -954,6 +956,9 @@
       (ra::scheme-code-cont '()))))
 
 
+(define code-to-eval #!void)
+
+
 (define (ra-transpile-and-run file-path)
   (ra::handle-crash
     (let* ((absolute-path
@@ -963,9 +968,13 @@
                  (string-append (current-directory) file-path))))
            (path-to-scm-file (string-append absolute-path ".tmp.scm")))
       (read-and-parse-module-by-path! absolute-path)
-      (eval
-        (append (map (lambda (path) `(ra::add-module! ,path)) modules-code)
-                (list
-                  (list
-                    'ra::handle-crash-fn
-                    (list 'lambda '() (ra::scheme-code-cont '())))))))))
+      (let ((scheme-code
+              (append (cons 'begin (map (lambda (path) `(ra::add-module! ,path)) modules-code))
+                      (list
+                        (list
+                          'ra::handle-crash-fn
+                          (list 'lambda '()
+                            (cons 'begin
+                              (ra::scheme-code-cont '()))))))))
+        (set! code-to-eval scheme-code)
+        (eval code-to-eval)))))
