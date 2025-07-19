@@ -241,7 +241,7 @@
 
 
 (define (display! & values)
-  (map (fn (value) (##display value)) values)
+  (##force (map (fn (value) (##display value)) values))
   nil)
 
 
