@@ -847,7 +847,7 @@
              (crash 'empty-if-branch (sexp->code (car sexp))))
            (if (> (length (cdr sexp)) 3)
              (crash 'if-branch-too-many-args (sexp->code sexp)))
-           `(if ,@(continue (cdr sexp))))
+           `(if (##force ,(val->scheme (cadr sexp) new-ci)) ,@(continue (cddr sexp))))
 
           ((equal? (car sexp) "let")
            (if (null? (cdr sexp))
@@ -855,7 +855,8 @@
            (make-namespace new-ci (ns->scheme (cdr sexp) (codegen-info-is-top-level-set new-ci #f))))
 
           ((member (car sexp) '("and" "or"))
-           `(,(string->symbol (car sexp)) ,@(continue (cdr sexp))))
+           `(,(string->symbol (car sexp))
+              ,@(map (wrap-into-list '##force) (continue (cdr sexp)))))
 
           ((equal? (car sexp) "fn")
            (if (< (length (cdr sexp)) 2)
@@ -909,8 +910,12 @@
                          (string-prefix? "ra::" (car sexp))
                          (string-prefix? "make-ra::" (car sexp))))
               `(,(string->symbol (car sexp))
-                 ,@(map (lambda (arg) (val->scheme arg new-ci)) (cdr sexp)))
-              (let* ((callable (val->scheme (car sexp) new-ci))
+                 ,@(map (lambda (arg)
+                          (fn-if (string-prefix? "##" (car sexp))
+                            (wrap-into-list '##force)
+                            (val->scheme arg new-ci)))
+                        (cdr sexp)))
+              (let* ((callable (list '##force (val->scheme (car sexp) new-ci)))
                      (args
                        (list 'quasiquote
                              ((map-over (parse-fn-call (cdr sexp)))
@@ -918,7 +923,9 @@
                                 (append
                                   (but-last v)
                                   (list (list 'unquote (val->scheme (last v) new-ci)))))))))
-                `(ra::call ,(sexp->code sexp) ,callable ,args)))))))))
+                (fn-if (not (and (string? (car sexp)) (string-suffix? "!" (car sexp))))
+                       (wrap-into-list '##delay)
+                       `(ra::call ,(sexp->code sexp) ,callable ,args))))))))))
 
 
 
