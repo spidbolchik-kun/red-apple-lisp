@@ -218,8 +218,8 @@
                  )
                )
             ))
-          (error e))
-        (error e)))
+          (raise e))
+        (raise e)))
     thunk
 ))
 
@@ -801,12 +801,12 @@
                       (ra::push-alist-to-ns
                         (ra::push-alist-to-ns
                           meta
-                          (map (lambda (a) (cons a #!void)) (cadr res)))
+                          (map (lambda (a) (cons a #!void)) (caadr res)))
                         (list (cons kw arg-val)))
                       (ra::dictionary-merge
-                        (map
-                          (lambda (a) (cons a kw))
-                          (filter (lambda (a) (not (equal? a kw))) (cadr res)))
+                        (make-ra::dictionary
+                          (map (lambda (a) (cons a kw))
+                               (filter (lambda (a) (not (equal? a kw))) (caadr res))))
                         (ra::callable-meta-either-forbidden meta)))
                     (ra::push-alist-to-ns meta (list (cons kw arg-val)))))
                 (caddr res))))
