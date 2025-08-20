@@ -3,6 +3,7 @@
 ; module system and primitive macros
 
 (include "utils.scm")
+(include "nsmod.scm")
 (include "parser.scm")
 (include "runtime.scm")
 
@@ -546,37 +547,37 @@
 
 
 (define (inject sexp)
-  (if (not (list? (ra::data sexp)))
+  (if (not (list? (ra::erase-all-labels sexp)))
     (ra::set-label sexp 'injected #t)
-    (map inject (ra::data sexp))))
+    (map inject (ra::erase-all-labels sexp))))
 
 
 (define (set-ns-pref sexp pref)
-  (if (not (list? (ra::data sexp)))
+  (if (not (list? (ra::erase-all-labels sexp)))
     (let ((prefix (ra::get-label sexp 'prefix))
           (injected (ra::get-label sexp 'injected)))
       (ra::del-label
-        (if (and (string? (ra::data sexp))
-                 (not (member (ra::data sexp) forbidden-refs))
+        (if (and (string? (ra::erase-all-labels sexp))
+                 (not (member (ra::erase-all-labels sexp) forbidden-refs))
                  (equal? prefix #!void)
                  (or (equal? injected #!void) (not injected)))
           (ra::set-label sexp 'prefix pref)
           sexp)
         'injected))
     (map (lambda (sexp2) (set-ns-pref sexp2 pref))
-         (ra::data sexp))))
+         (ra::erase-all-labels sexp))))
 
 
 (define (prefixed-in-destructuring sexp)
-  (let ((data (ra::data sexp))
+  (let ((data (ra::erase-all-labels sexp))
         (prefix (ra::get-label sexp 'prefix)))
     (if (and (string? data) (not (equal? #!void prefix)))
       (list sexp)
       (if (and (list? data)
                (= (length data) 2)
                (one-of? (car data) '("quote" "kv-quote"))
-               (list? (ra::data (cadr data))))
-        (apply append (map prefixed-in-destructuring (ra::data (cadr data))))
+               (list? (ra::erase-all-labels (cadr data))))
+        (apply append (map prefixed-in-destructuring (ra::erase-all-labels (cadr data))))
         '()))))
 
 
@@ -660,19 +661,35 @@
 
 
 (define (var-setter ci lval rval)
-  (define ns (ns-ref-from-ci ci))
+  (define (get-variable-sym-with-pref! varname)
+    (get-variable-symbol! varname (list (codegen-info-path ci))))
+
   (if (not (quoted-structure? lval))
     (let ((ci (codegen-info-assignment-to-set ci lval)))
-      `(ra::ns-set-var ,ns ,lval ,(val->scheme rval ci) mut: #t))
-    `(for-each
-       (lambda (p)
-         (ra::ns-set-var ,ns (car p) (cdr p) mut: #t))
-       (ra::assignment->ns (quote ,(destructuring-identifiers lval))
-                           ,(val->scheme rval ci)))))
+      (if (codegen-info-is-top-level ci)
+        (add-module-top-level-varname! (codegen-info-path ci) lval))
+      `(define ,(get-variable-sym-with-pref! lval) ,(val->scheme rval ci)))
+    (let ((getters (destructuring-identifiers lval))
+          (tmp-value-sym (gensym!))
+          (getters-sym (gensym!)))
+      `(begin
+         (define ,tmp-value-sym ,(val->scheme rval ci))
+         (define ,getters-sym (ra::assignment->ns (quote ,getters) ,tmp-value-sym))
+         ,@((map-over getters)
+            (lambda (kv)
+              (if (codegen-info-is-top-level ci)
+                (add-module-top-level-varname! (codegen-info-path ci) (car kv)))
+              `(define ,(get-variable-sym-with-pref! (car kv))
+                 (cdr (assoc ,(car kv) ,getters-sym)))))))))
 
 
 (define (var-getter ci val)
-  `(ra::ns-ref ,(ns-ref-from-ci ci) ,val meta: ,(sexp->code val)))
+  `(with-exception-catcher
+     (lambda (e)
+       (if (unbound-global-exception? e)
+         (error 'unbound-variable ,val)
+         (raise e)))
+     (lambda () ,(get-variable-symbol! val (list (codegen-info-path ci))))))
 
 
 (define (get-module-full-path path #!key ci)
@@ -705,7 +722,7 @@
               ra::push-scheme-statement!
               (ns->scheme
                 sexp-code
-                (make-codegen-info full-path #t #!void)))))))
+                (make-codegen-info full-path #t #f)))))))
         (if (mspm-error? maybe-error)
           (error (mspm-error-path-set maybe-error full-path))
           (if (equal? maybe-error #!void)
@@ -714,6 +731,9 @@
 
 
 (define (import-module! sexp ci)
+  (define (get-variable-sym-with-pref! varname)
+    (get-variable-symbol! varname (list (codegen-info-path ci))))
+
   (if (or (not (= (length sexp) 2))
           (not (list? (cadr sexp)))
           (not (equal? (caadr sexp) "quote"))
@@ -723,10 +743,12 @@
     (let ()
       (define full-path (get-module-full-path (cadadr sexp) ci: ci))
       (read-and-parse-module-by-path! full-path)
-      `(ra::ns-merge
-         ,(ns-ref-from-ci ci)
-         (ra::ns-current (ra::get-module ,full-path))
-         mut: #t))))
+      `(begin
+         ,@((map-over (get-module-varnames full-path))
+            (lambda (varname)
+              `(define
+                 ,(get-variable-symbol! varname (list (codegen-info-path ci)))
+                 ,(get-variable-symbol! varname (list full-path)))))))))
 
 
 (define (ns->scheme sexp ci)
@@ -815,13 +837,6 @@
         (else (crash 'not-a-quoted-structure (sexp->code sexp)))))
 
 
-(define (make-namespace ci inside #!key with-vars)
-  (define vars (or with-vars 'ra::empty-dictionary))
-  (define ns-obj
-    `(make-ra::ns ,vars ,(ns-ref-from-ci ci) #!void))
-  `(let ((namespace ,ns-obj)) ,@inside))
-
-
 (define (val->scheme sexp ci)
   (define new-ci (codegen-info-assignment-to-set ci #f))
   (define (continue ls)
@@ -852,7 +867,8 @@
           ((equal? (car sexp) "let")
            (if (null? (cdr sexp))
              (crash 'empty-let-block sexp))
-           (make-namespace new-ci (ns->scheme (cdr sexp) (codegen-info-is-top-level-set new-ci #f))))
+           `(let ()
+              ,@(ns->scheme (cdr sexp) (codegen-info-is-top-level-set new-ci #f))))
 
           ((member (car sexp) '("and" "or"))
            `(,(string->symbol (car sexp)) ,@(continue (cdr sexp))))
@@ -860,48 +876,72 @@
           ((equal? (car sexp) "fn")
            (if (< (length (cdr sexp)) 2)
              (crash 'empty-fn-definition (sexp->code (car sexp))))
-           (let* ((hb (if (and (list? (cadr sexp)) (not (quoted-structure? (cadr sexp))))
-                        (cdr sexp)
-                        (cons (but-last (cdr sexp)) (list (last sexp)))))
-                  (decl (fn-arguments (car hb)))
-                  (body (cdr hb))
-                  (key-def-constructors
-                    (map
-                      (lambda (kv) (list (car kv) (list 'unquote (val->scheme (cadr kv) new-ci))))
-                      (append (cdr (assoc "#default" decl))
-                              (cdr (assoc "#key" decl))))))
+
+           (let ()
+             (define head-and-body
+               (if (and (list? (cadr sexp)) (not (quoted-structure? (cadr sexp))))
+                 (cdr sexp)
+                 (cons (but-last (cdr sexp)) (list (last sexp)))))
+
+             (define decl (fn-arguments (car head-and-body)))
+
+             (define ordered-args
+               (list-sort string<=? 
+                 (append
+                   (apply append (cdr (assoc "#either" decl)))
+                   (map car
+                     (apply append
+                       (map cdr
+                         (filter (lambda (g) (not (equal? (car g) "#either")))
+                                 decl)))))))
+
+             (define ordered-args-symbols
+               (map (lambda (v) (get-variable-symbol! v (list (codegen-info-path ci))))
+                    ordered-args))
+
+             (define body (cdr head-and-body))
+
+             (define ns-with-default
+               (list 'make-ra::dictionary
+                 (cons 'list
+                   (map (lambda (kv) `(cons ,(car kv) ,(val->scheme (cadr kv) new-ci)))
+                        (append (cdr (assoc "#default" decl)) (cdr (assoc "#key" decl)))))))
+
+             (define ns-inside-called
+               (list 'make-ra::dictionary
+                 (cons 'list
+                   (map (lambda (str sym) `(cons ,str ,sym))
+                        ordered-args
+                        ordered-args-symbols))))
+
+             (define name
+               (if (codegen-info-assignment-to ci) (codegen-info-assignment-to ci) #!void))
+
+             (define (get-variable-sym-with-pref! varname)
+               (get-variable-symbol! varname (list (codegen-info-path ci))))
+
              `(let ()
-                (define (function kwargs locals)
-                  ,(make-namespace
-                     ci
-                     `((define kd ,(list 'quasiquote key-def-constructors))
-                       (define rec #f)
-                       (for-each
-                         (lambda (k)
-                           (if (not (ra::dictionary-has? (ra::ns-current namespace) k))
-                             (ra::ns-set-var namespace k (cadr (assoc k kd)) mut: #t)))
-                         kwargs)
-                       (set! rec
-                         (ra::wrap-callable-in-meta
-                           function
-                           (ra::callable-meta-ns-set
-                             (ra::callable-meta-called-set
-                               (ra::init-callable-meta
-                                 (quote ,decl)
-                                 ,(if (codegen-info-assignment-to ci) (codegen-info-assignment-to ci) #!void))
-                               #t)
-                             (ra::ns-current namespace))))
-                       (ra::ns-set-var namespace "#rec" rec mut: #t)
-                       ,@(if (codegen-info-assignment-to ci)
-                           (list `(ra::ns-set-var namespace ,(codegen-info-assignment-to ci) rec mut: #t))
-                           '())
-                       ,@(ns->scheme body (codegen-info-is-top-level-set new-ci #f)))
-                     with-vars: 'locals))
-                (ra::wrap-callable-in-meta
-                  function
-                  (ra::init-callable-meta
-                    (quote ,decl)
-                    ,(if (codegen-info-assignment-to ci) (codegen-info-assignment-to ci) #!void))))))
+                (define wrapped-function #f)
+                (define (function ,@ordered-args-symbols)
+                  (define ,rec-sym
+                    (ra::wrap-callable-in-meta
+                      function
+                      (ra::callable-meta-called-set
+                        (ra::init-callable-meta ,ns-inside-called (quote ,decl) ,name)
+                        #t)))
+                  (define ,cn-rec-sym wrapped-function)
+                  ,@(if (equal? name #!void)
+                      '()
+                      `((define ,(get-variable-sym-with-pref! name) ,rec-sym)
+                        (define ,(get-variable-sym-with-pref! (string-append "cn:" name)) ,cn-rec-sym)))
+                  (let ()
+                    ,@(ns->scheme body (codegen-info-is-top-level-set new-ci #f))))
+                (set! wrapped-function
+                  (ra::wrap-callable-in-meta
+                     function
+                     (ra::init-callable-meta ,ns-with-default (quote ,decl) ,name)))
+                wrapped-function
+                )))
 
           (else
             (if (and (string? (car sexp))
@@ -930,10 +970,8 @@
 
 
 (define (get-scheme-code)
-  `(,@(map (lambda (path) `(ra::add-module! ,path)) modules-code)
-    (ra::handle-crash-fn
-      (lambda ()
-        ,@(ra::scheme-code-cont '())))))
+  (ra::handle-crash-fn
+    (lambda () (ra::scheme-code-cont '()))))
 
 
 (define (ra-compile file-path)

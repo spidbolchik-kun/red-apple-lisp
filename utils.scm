@@ -197,3 +197,9 @@
                ((string? obj) (cons "quote" obj))
                (else obj)))
        '(e ...)))))
+
+
+(define-syntax return-if
+  (syntax-rules ()
+    ((_ head else) (return-if identity head else))
+    ((_ p head else) (let ((x head)) (if (p x) x else)))))

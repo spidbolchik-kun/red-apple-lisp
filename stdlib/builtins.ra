@@ -1,5 +1,6 @@
 (define (boolean? value) (##boolean? value))
 (define (number? value) (##number? value))
+(define (integer? value) (##integer? value))
 (define (string? value) (##string? value))
 (define (list? value) (##list? value))
 (define (kv? value) (ra::dictionary? (ra::data value)))
@@ -269,6 +270,12 @@
 
 
 (define (item & path) (fn (value) (value & path)))
+
+
+(define (take n from)
+  (if (or (empty? from) (== n 0))
+    from
+    (take (- n 1) (tail from))))
 
 
 (define (read-file-string! path)

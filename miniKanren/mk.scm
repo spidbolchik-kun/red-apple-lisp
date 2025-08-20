@@ -5,6 +5,14 @@
       (cons (car ls) (remp proc (cdr ls)))
       (remp proc (cdr ls)))))
 
+(define (exists pred ls)
+  (if (null? ls)
+    #f
+    (if (pred (car ls))
+      #t
+      (exists pred (cdr ls)))))
+
+
 (define sort list-sort)
 
 (define c->S (lambda (c) (car c)))

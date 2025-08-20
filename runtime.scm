@@ -1,3 +1,6 @@
+(include "dt.scm")
+
+
 (define (map-over ls) (lambda (fn) (map fn ls)))
 (define (filter-over ls) (lambda (fn) (filter fn ls)))
 
@@ -9,7 +12,7 @@
 
 
 (define EXN #!void)
-
+(define EXN2 #!void)
 
 (define (ra::display-in-red string #!key (stderr #t))
   (print port: (if stderr (current-error-port) (current-output-port))
@@ -27,7 +30,7 @@
       "(˵ ͡° ͜ʖ ͡°˵) "
       (string-map (lambda (c) (if (equal? c #\-) #\space c))
                   (symbol->string error-message-symbol))
-      " error\n"))
+      "\n"))
   (define border (make-string (- (string-length message) 2) #\=))
   (string-set! border (- (string-length border) 1) #\newline)
   (ra::display-in-red
@@ -207,6 +210,20 @@
                (ra::display-err (error-exception-parameters e))
                (ra::display-err "\n")
               )
+              ((equal? (error-exception-message e) 'either-group-already-passed)
+               (let ()
+                 (show-runtime-error (last (error-exception-parameters e)))
+                 (let ((var-info (car (error-exception-parameters e))))
+                   (ra::display-err (car var-info))
+                   (ra::display-err " = ")
+                   (ra::display-err (last var-info))
+                   (ra::display-err "\n")
+                   (ra::display-err "conflicts with ")
+                   (ra::display-in-red (cadr var-info))
+                   (ra::display-err "\n")
+                 )
+               )
+              )
                (else
                  (let ()
                    (define error-params (cdar (error-exception-parameters e)))
@@ -230,153 +247,13 @@
      (ra::handle-crash-fn (lambda () e ...)))))
 
 
-(define (ra::data obj-or-scheme-val)
-  (if (ra::obj? obj-or-scheme-val)
-    (ra::obj-data obj-or-scheme-val)
-    obj-or-scheme-val))
-
-
-(define (ra::over-data f obj-or-scheme-val)
-  (if (ra::obj? obj-or-scheme-val)
-    (ra::obj-data-set
-      obj-or-scheme-val
-      (f (ra::obj-data obj-or-scheme-val)))
-    (f obj-or-scheme-val)))
-
-
-(define-structure ra::dictionary alist)
-
-(define ra::empty-dictionary (make-ra::dictionary '()))
-
-
-(define (ra::init-obj obj)
-  (make-ra::obj obj ra::empty-dictionary ra::empty-dictionary))
-
-
-(define (ra::dictionary-delete dictionary key)
-  (ra::dictionary-alist-set dictionary
-    (filter (lambda (kv)
-              (equal? (ra::data (car kv)) (ra::data key)))
-            (ra::dictionary-alist dictionary))))
-
-
-(define (ra::dictionary-delete-many dictionary keys)
-  (if (null? keys)
-    dictionary
-    (ra::dictionary-delete-many
-      (ra::dictionary-delete dictionary (car keys))
-      (cdr keys))))
-
-
 (define (ra::alist-set alist key value)
   (if (null? alist)
     (list (cons key value))
-    (if (equal? (ra::data (caar alist)) (ra::data key))
+    (if (equal? (caar alist) key)
       (cons (cons key value) (cdr alist))
       (cons (car alist)
             (ra::alist-set (cdr alist) key value)))))
-
-
-(define (ra::dictionary-set dictionary key value)
-  (make-ra::dictionary
-    (ra::alist-set (ra::dictionary-alist dictionary) key value)))
-
-
-(define (ra::dictionary-empty? dict)
-  (null? (ra::dictionary-alist dict)))
-
-
-(define (ra::dictionary-merge d1 d2)
-  (if (ra::dictionary-empty? d1)
-    d2
-    (ra::dictionary-merge
-      (make-ra::dictionary (cdr (ra::dictionary-alist d1)))
-      (let ((d1-head (car (ra::dictionary-alist d1))))
-        (ra::dictionary-set d2 (car d1-head) (cdr d1-head))))))
-
-
-(define (ra::alist-get key alist #!key error-on-null)
-  (if (null? alist)
-    (if error-on-null
-      (error 'no-such-key key)
-      #!void)
-    (if (equal? (ra::data (caar alist)) (ra::data key))
-      (cdar alist)
-      (ra::alist-get key (cdr alist) error-on-null: error-on-null))))
-
-
-(define (ra::dictionary-has? dictionary key)
-  (let ((alist (ra::dictionary-alist dictionary)))
-    (with-exception-catcher
-      (lambda (e) #f)
-      (lambda ()
-        (ra::alist-get key alist error-on-null: #t)
-        #t))))
-
-
-(define (ra::dictionary-pick dictionary keys)
-  (define alist (ra::dictionary-alist dictionary))
-  (define (inner keys)
-    (if (null? keys)
-      '()
-      (if (ra::dictionary-has? dictionary (car keys))
-        (cons (cons (car keys) (ra::alist-get (car keys) alist))
-              (inner (cdr keys)))
-        (inner (cdr keys)))))
-  (make-ra::dictionary (inner keys)))
-
-
-(define (ra::get structure args #!key stop-on-void)
-  (define (list-ref-or-void ls i)
-    (if (and (<= 0 i) (< i (length ls)))
-      (list-ref ls i)
-      #!void))
-
-  (define (inner structure args)
-    (if (or (null? args) (and stop-on-void (equal? (ra::data structure) #!void)))
-      structure
-      (let ((structure (ra::data structure)))
-        (let ((new-structure
-          (cond ((ra::dictionary? structure)
-                 (ra::alist-get (car args) (ra::dictionary-alist structure)))
-                ((list? structure)
-                 (list-ref-or-void structure (ra::data (car args))))
-                (else
-                  (error 'unsupported-data structure args)))))
-          (inner new-structure (cdr args))))))
-
-  (if (null? args)
-    (error 'empty-item-list structure args)
-    (inner structure args)))
-
-
-(define (ra::get* structure . args)
-  (ra::get structure args))
-
-
-(define (ra::set-label obj key val)
-  (let ((new-obj (if (ra::obj? obj)
-                   obj
-                   (make-ra::obj obj #!void ra::empty-dictionary))))
-    (ra::obj-visible-meta-set obj
-      (ra::dictionary-set (ra::obj-visible-meta obj) key val))))
-
-
-(define (ra::del-label obj key)
-  (if (not (ra::obj? obj))
-    obj
-    (let ((new-visible
-            (ra::dictionary-delete (ra::obj-visible-meta obj) key)))
-      (if (or (not (equal? (ra::obj-hidden-meta obj) #!void))
-              (not (ra::dictionary-empty? new-visible)))
-        (ra::obj-visible-meta-set obj new-visible)
-        (ra::obj-data obj)))))
-
-
-(define (ra::get-label obj key)
-  (if (not (ra::obj? obj))
-    #!void
-    (ra::get* (ra::obj-hidden-meta obj) key)))
 
 
 (define (ra::prepare-call-args args call-info)
@@ -384,8 +261,8 @@
     (if (null? args)
       '()
       (if (and (equal? (caar args) "&")
-               (not (or (list? (ra::data (cadar args)))
-                        (ra::dictionary? (ra::data (cadar args))))))
+               (not (or (list? (ra::erase-all-labels (cadar args)))
+                        (ra::dictionary? (ra::erase-all-labels (cadar args))))))
         (error 'not-a-list-or-dict (cadar args) call-info)
         (cons (car args) (check-rest (cdr args))))))
 
@@ -394,7 +271,7 @@
       (cons (pos-cont '()) '())
       (if (or (equal? (caar args) 'keyword)
               (and (equal? (caar args) "&")
-                   (ra::dictionary? (ra::data (cadar args)))))
+                   (ra::dictionary? (ra::erase-all-labels (cadar args)))))
         (cons (pos-cont '()) args)
         (separate-pos-key (cdr args)
           pos-cont: (lambda (acc) (pos-cont (cons (car args) acc)))))))
@@ -403,7 +280,7 @@
     (define (positional? arg)
       (or (equal? 'positional (car arg))
           (and (equal? (car arg) "&")
-               (list? (ra::data (cadr arg))))))
+               (list? (ra::erase-all-labels (cadr arg))))))
     (let ((res (filter positional? args)))
       (if (not (= (length res) 0))
         (error 'positional-after-key (cadar res) call-info)
@@ -420,7 +297,7 @@
     (if (null? args)
       '()
       (if (equal? "&" (caar args))
-        (append (ra::dictionary-alist (ra::data (cadar args)))
+        (append (ra::dictionary-alist (ra::erase-all-labels (cadar args)))
                 (flatten-kw (cdr args)))
         (cons (cons (cadar args) (caddar args))
               (flatten-kw (cdr args))))))
@@ -440,17 +317,13 @@
 (define-structure ra::callable-meta decl pa ns either-forbidden already-passed delayed-rest called kw-rest name)
 
 
-(define (ra::init-callable-meta decl name)
+(define (ra::init-callable-meta ns decl name)
   (make-ra::callable-meta
-    decl #f ra::empty-dictionary ra::empty-dictionary '() #!void #f ra::empty-dictionary name))
+    decl #f ns ra::empty-dictionary '() #!void #f ra::empty-dictionary name))
 
 
 (define (ra::wrap-callable-in-meta callable meta)
-  (make-ra::obj callable meta ra::empty-dictionary))
-
-
-(define (ra::list*? obj) (list? (ra::data obj)))
-(define (ra::dictionary*? obj) (ra::dictionary? (ra::data obj)))
+  (make-ra::procedure callable meta ra::empty-dictionary))
 
 
 (define (ra::list-slice ls start end)
@@ -491,52 +364,60 @@
   (inner ra::modules))
 
 
-(define (ra::ns-ref ns sym #!key meta)
-  (define gensym-counter (ra::get-label sym 'gensym-counter))
-
-  (if (equal? ns #!void)
-    (error 'unbound-variable (if meta meta sym))
-    (let ((to-get (if (equal? gensym-counter #!void) sym gensym-counter)))
-      (if (ra::dictionary-has? (ra::ns-current ns) to-get)
-        (force (ra::get* (ra::ns-current ns) to-get))
-        (ra::ns-ref (ra::ns-parent ns) sym meta: meta)))))
-
-
-(define (ra::mod-ref mod-name sym)
-  (ra::ns-ref (ra::get-module mod-name) sym))
+;(define (ra::ns-ref ns sym #!key meta)
+;  (define gensym-counter (ra::get-label sym 'gensym-counter #!void))
+;
+;  (if (equal? ns #!void)
+;    (error 'unbound-variable (if meta meta sym))
+;    (let ((to-get (if (equal? gensym-counter #!void) sym gensym-counter)))
+;      (if (ra::dictionary-has? (ra::ns-current ns) to-get)
+;        (force (ra::get* (ra::ns-current ns) to-get))
+;        (ra::ns-ref (ra::ns-parent ns) sym meta: meta)))))
 
 
-(define (ra::ref ns sym)
-  (define pref (ra::get-label sym 'prefix))
-
-  (define (up ns pref)
-    (if (equal? ns #!void)
-      (error 'no-name-with-such-prefix pref)
-      (if (equal? pref (ra::ns-prefix ns))
-        ns
-        (up (ra::ns-parent ns) pref))))
-
-  (if (equal? pref #!void)
-    (ra::ns-ref ns (ra::data sym))
-    (if (= 1 (length pref))
-      (ra::mod-ref (car pref) (ra::data sym))
-      (ra::ns-ref (up ns pref) (ra::data sym)))))
+(define-syntax ra::ns-ref
+  (syntax-rules (key-and-default)
+    ((_ sym-str scheme-sym)
+     (with-exception-catcher
+       (lambda (e) (error 'unbound-variable sym-str))
+       (lambda () scheme-sym)))))
 
 
-(define (ra::get-ns-prefix-by-sym ns sym)
-  (define probably-fn
-    (with-exception-catcher (lambda (e) #f) (ra::ns-ref ns sym)))
+;(define (ra::mod-ref mod-name sym)
+;  (ra::ns-ref (ra::get-module mod-name) sym))
 
-  (if (not probably-fn)
-    #f
-    (let ((probably-m-prefix (assq probably-fn ra::macro-prefixes)))
-      (if (not probably-m-prefix)
-        #f
-        (cdr probably-m-prefix)))))
+
+;(define (ra::ref ns sym)
+;  (define pref (ra::get-label sym 'prefix #!void))
+;
+;  (define (up ns pref)
+;    (if (equal? ns #!void)
+;      (error 'no-name-with-such-prefix pref)
+;      (if (equal? pref (ra::ns-prefix ns))
+;        ns
+;        (up (ra::ns-parent ns) pref))))
+;
+;  (if (equal? pref #!void)
+;    (ra::ns-ref ns (ra::erase-all-labels sym))
+;    (if (= 1 (length pref))
+;      (ra::mod-ref (car pref) (ra::erase-all-labels sym))
+;      (ra::ns-ref (up ns pref) (ra::erase-all-labels sym)))))
+
+
+;(define (ra::get-ns-prefix-by-sym ns sym)
+;  (define probably-fn
+;    (with-exception-catcher (lambda (e) #f) (ra::ns-ref ns sym)))
+;
+;  (if (not probably-fn)
+;    #f
+;    (let ((probably-m-prefix (assq probably-fn ra::macro-prefixes)))
+;      (if (not probably-m-prefix)
+;        #f
+;        (cdr probably-m-prefix)))))
 
 
 (define (ra::add-macro-prefix! macro pref)
-  (if (not (procedure? (ra::data macro)))
+  (if (not (procedure? (ra::erase-all-labels macro)))
     (error 'macro-should-be-a-procedure macro)
     (let ((new-mp (cons (cons macro pref) ra::macro-prefixes)))
       (set! ra::macro-prefixes new-mp))))
@@ -546,7 +427,7 @@
   ((if mut ra::ns-current-set! ra::ns-current-set)
    ns
    (make-ra::dictionary
-     (let ((gensym-counter (ra::get-label sym 'gensym-counter)))
+     (let ((gensym-counter (ra::get-label sym 'gensym-counter #!void)))
        (cons (cons (if (equal? gensym-counter #!void) sym gensym-counter) val)
              (ra::dictionary-alist (ra::ns-current ns)))))))
 
@@ -554,7 +435,7 @@
 (define (ra::ns-merge ns dict #!key mut)
   ((if mut ra::ns-current-set! ra::ns-current-set)
    ns
-   (ra::dictionary-merge dict (ra::ns-current ns))))
+   (ra::dictionary-merge/left-overrides dict (ra::ns-current ns))))
 
 
 (define (ra::assignment->ns assignments val)
@@ -592,7 +473,7 @@
   (ra::callable-meta-already-passed-set
     (ra::callable-meta-ns-set
       meta
-      (ra::dictionary-merge
+      (ra::dictionary-merge/left-overrides
         (make-ra::dictionary (ra::assignment->ns assignments data))
         (ra::callable-meta-ns meta)))
     (append (ra::callable-meta-already-passed meta)
@@ -602,7 +483,7 @@
 (define (ra::push-alist-to-ns meta alist)
   (ra::callable-meta-ns-set
     meta
-    (ra::dictionary-merge
+    (ra::dictionary-merge/left-overrides
       (make-ra::dictionary
         (map (lambda (kv) (cons (car kv) (cdr kv))) alist))
       (ra::callable-meta-ns meta))))
@@ -612,7 +493,7 @@
   (ra::callable-meta-kw-rest-set
     (ra::callable-meta-ns-set
       meta
-      (ra::dictionary-merge
+      (ra::dictionary-merge/left-overrides
         (make-ra::dictionary
           (ra::assignment->ns
             (cdr (assoc "#key-rest" (ra::callable-meta-decl meta)))
@@ -639,11 +520,13 @@
 
 (define (ra::call call-info callable args)
   (let* ((callable (force callable))
-         (callable* (ra::data callable))
+         (callable* (if (ra::procedure? callable)
+                      (ra::procedure-code callable)
+                      callable))
          (prepared-args (ra::prepare-call-args args call-info))
          (positional (car prepared-args))
          (kw (cdr prepared-args))
-         (meta (if (ra::obj? callable) (ra::obj-hidden-meta callable) #!void)))
+         (meta (if (ra::procedure? callable) (ra::procedure-meta callable) #!void)))
 
     (define (pos-pop pos-decl item-spec)
       (define (list-slice? item-spec)
@@ -698,8 +581,8 @@
             (ra::callable-meta-delayed-rest-set
               meta
               (cons new-arg-ls (cdr delayed-rest)))))
-        (let ((pos (ra::alist-get "#positional" decl))
-              (kw (ra::alist-get "#key" decl)))
+        (let ((pos (cdr (assoc "#positional" decl)))
+              (kw (cdr (assoc "#key" decl))))
           (if (not (null? pos))
             (let ((popped (pos-pop pos (cadar pos))))
               (if (equal? (car (cadaar popped)) 'list-slice)
@@ -803,7 +686,7 @@
                           meta
                           (map (lambda (a) (cons a #!void)) (caadr res)))
                         (list (cons kw arg-val)))
-                      (ra::dictionary-merge
+                      (ra::dictionary-merge/left-overrides
                         (make-ra::dictionary
                           (map (lambda (a) (cons a kw))
                                (filter (lambda (a) (not (equal? a kw))) (caadr res))))
@@ -838,33 +721,32 @@
 
       (define (call)
         (define ns
-          (ra::callable-meta-ns
-            ((if (ra::callable-meta-called meta)
-               identity
-               (lambda (meta) (ra::push-to-ns meta new-pos '())))
-             (push-delayed-rest new-meta))))
+          (make-ra::dictionary
+            (list-sort
+              (lambda (x y) (string<=? (car x) (car y)))
+              (ra::dictionary->list
+                (ra::callable-meta-ns
+                 ((if (ra::callable-meta-called meta)
+                    identity
+                    (lambda (meta) (ra::push-to-ns meta new-pos '())))
+                  (push-delayed-rest new-meta)))))))
 
         (with-exception-catcher
           (lambda (e)
+            (set! EXN2 e)
             (apply error
               `(,(error-exception-message e)
                 ,(ra::dictionary-pick ns (last call-info))
                 ,(append call-info (list (ra::callable-meta-name new-meta)))
                 ,@(error-exception-parameters e))))
-          (lambda ()
-            (callable*
-              (if (ra::callable-meta-called meta)
-                '()
-                (map car (append (cdr (assoc "#default" new-decl))
-                                 (cdr (assoc "#key" new-decl)))))
-              ns))))
+          (lambda () (apply callable* (map cdr (ra::dictionary-alist ns))))))
 
         (if (ra::callable-meta-called meta)
           (call)
           (if (or (some-are-required? new-pos) (not (null? new-either)))
             (if (ra::callable-meta-pa new-meta)
               (error 'required-args-not-passed (list new-pos new-either) call-info)
-              (ra::obj-hidden-meta-set
+              (ra::procedure-meta-set
                 callable
                 (ra::callable-meta-pa-set new-meta #t)))
             (call))))
