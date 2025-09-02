@@ -692,12 +692,6 @@
 (define-structure codegen-info path is-top-level assignment-to)
 
 
-(define (ns-ref-from-ci ci)
-  (if (codegen-info-is-top-level ci)
-    `(ra::get-module ,(codegen-info-path ci))
-    'namespace))
-
-
 (define (var-setter ci lval rval)
   (define (get-variable-sym-with-pref! varname)
     (get-variable-symbol! varname (list (codegen-info-path ci))))
@@ -725,7 +719,7 @@
   `(with-exception-catcher
      (lambda (e)
        (if (unbound-global-exception? e)
-         (error 'unbound-variable ,val)
+         (error 'unbound-variable ,(sexp->code val))
          (raise e)))
      (lambda () ,(get-variable-symbol! val (list (codegen-info-path ci))))))
 
