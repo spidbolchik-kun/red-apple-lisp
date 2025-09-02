@@ -3,6 +3,7 @@
 ; module system and primitive macros
 
 (include "utils.scm")
+(include "dt.scm")
 (include "nsmod.scm")
 (include "parser.scm")
 (include "runtime.scm")
@@ -12,7 +13,7 @@
 
 
 (define primitive-forms
-  (append statements '("fn" "if" "let" "quote" "kv-quote" "and" "or")))
+  (append statements '("fn" "if" "let" "quote" "list-quote" "kv-quote" "and" "or")))
 
 
 (define forbidden-refs (append primitive-forms '("_" "&" "=")))
@@ -121,6 +122,32 @@
     wrapped))
 
 
+(define (ast-obj->sexp2 obj)
+  (define (wrap inner)
+    (ra::set-label
+      (if (not (one-of? (ast-obj-type obj) '(unquoted-symbol #\()))
+        (ra::set-label inner "quotation"
+          (if (equal? (ast-obj-type obj) #\{) "kv-quote" "quote")))
+      "ast-obj"
+      obj))
+
+  (wrap
+    (if (not (list? (ast-obj-data obj)))
+      (ast-obj-data obj)
+      (if (null? (ast-obj-data obj))
+        '()
+        (let ()
+          (define head (car (ast-obj-data obj)))
+          (define next-ast-obj
+            (ast-obj-range-set
+              (ast-obj-data-set obj (cdr (ast-obj-data obj)))
+              (range-start-set (ast-obj-range obj)
+                (range-end (ast-obj-range head)))))
+          (if (equal? (ast-obj-type head) #\;)
+            (ast-obj->sexp2 next-ast-obj)
+            (cons (ast-obj->sexp2 head) (ast-obj->sexp2 next-ast-obj))))))))
+
+
 (define (sexp->ast-obj sexp #!key (ast-alist '()))
   (define maybe-obj (assq sexp ast-alist))
   (define obj (and maybe-obj (cdr maybe-obj)))
@@ -226,7 +253,9 @@
 
 (define (unquoted-list? sexp)
   (and (list? sexp)
-       (not (or (quoted-list? sexp) (quoted-kv? sexp)))))
+       (not (or (quoted-list? sexp)
+                (quoted-kv? sexp)
+                (quoted-string? sexp)))))
 
 
 (define (get-duplicates-by fn ls)
@@ -344,11 +373,15 @@
                        ((1) (if (and (not (string? (car =-chain*)))
                                      (quoted-list? sexp))
                               (crash 'not-an-unquoted-symbol (sexp->code (car =-chain*)))
-                              (list (car =-chain*)
-                                    (if (quoted-list? sexp) acc (car =-chain*)))))
+                              (list (if (quoted-string? (car =-chain*)) #f (car =-chain*))
+                                    (if (quoted-list? sexp)
+                                      acc
+                                      (if (quoted-string? (car =-chain*))
+                                        (cadr (car =-chain*))
+                                        (car =-chain*))))))
                        ((2) (if (not (string? (car =-chain*)))
                               (crash 'not-an-unquoted-symbol (sexp->code (car =-chain*)))
-                              (list (car =-chain*) (cadr =-chain*)))))))
+                              (list (car =-chain*) (cadr (cadr =-chain*))))))))
                   (append
                     (merge-levels
                       (apply make-level
