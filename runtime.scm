@@ -132,13 +132,13 @@
                    callee-expr
                    callee-code-range)
 
-                 (ra::display-err "\033[0mwhere:\n")
-
-                 ((map-over (ra::dictionary-alist callee-vars))
-                  (lambda (kv)
-                    (ra::display-err (car kv))
-                    (ra::display-err " = ")
-                    (pp (cdr kv))))
+                 (if (not (null? (ra::dictionary-alist callee-vars)))
+                   (ra::display-err "\033[0mwhere:\n")
+                   ((map-over (ra::dictionary-alist callee-vars))
+                    (lambda (kv)
+                      (ra::display-err (car kv))
+                      (ra::display-err " = ")
+                      (pp (cdr kv)))))
                )
               )
               ((equal? (error-exception-message e) 'duplicate-definitions)
@@ -364,56 +364,12 @@
   (inner ra::modules))
 
 
-;(define (ra::ns-ref ns sym #!key meta)
-;  (define gensym-counter (ra::get-label sym 'gensym-counter #!void))
-;
-;  (if (equal? ns #!void)
-;    (error 'unbound-variable (if meta meta sym))
-;    (let ((to-get (if (equal? gensym-counter #!void) sym gensym-counter)))
-;      (if (ra::dictionary-has? (ra::ns-current ns) to-get)
-;        (force (ra::get* (ra::ns-current ns) to-get))
-;        (ra::ns-ref (ra::ns-parent ns) sym meta: meta)))))
-
-
 (define-syntax ra::ns-ref
   (syntax-rules (key-and-default)
     ((_ sym-str scheme-sym)
      (with-exception-catcher
        (lambda (e) (error 'unbound-variable sym-str))
        (lambda () scheme-sym)))))
-
-
-;(define (ra::mod-ref mod-name sym)
-;  (ra::ns-ref (ra::get-module mod-name) sym))
-
-
-;(define (ra::ref ns sym)
-;  (define pref (ra::get-label sym 'prefix #!void))
-;
-;  (define (up ns pref)
-;    (if (equal? ns #!void)
-;      (error 'no-name-with-such-prefix pref)
-;      (if (equal? pref (ra::ns-prefix ns))
-;        ns
-;        (up (ra::ns-parent ns) pref))))
-;
-;  (if (equal? pref #!void)
-;    (ra::ns-ref ns (ra::erase-all-labels sym))
-;    (if (= 1 (length pref))
-;      (ra::mod-ref (car pref) (ra::erase-all-labels sym))
-;      (ra::ns-ref (up ns pref) (ra::erase-all-labels sym)))))
-
-
-;(define (ra::get-ns-prefix-by-sym ns sym)
-;  (define probably-fn
-;    (with-exception-catcher (lambda (e) #f) (ra::ns-ref ns sym)))
-;
-;  (if (not probably-fn)
-;    #f
-;    (let ((probably-m-prefix (assq probably-fn ra::macro-prefixes)))
-;      (if (not probably-m-prefix)
-;        #f
-;        (cdr probably-m-prefix)))))
 
 
 (define (ra::add-macro-prefix! macro pref)
