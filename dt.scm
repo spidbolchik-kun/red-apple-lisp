@@ -86,9 +86,16 @@
 
 (define (ra::dictionary-pick dictionary keys)
   (make-ra::dictionary
-    ((map-over (unique keys))
-     (lambda (key)
-       (ra::dictionary-ref dictionary key)))))
+    (apply append
+      ((map-over (unique keys))
+       (lambda (key)
+         (with-exception-catcher
+           (lambda (e)
+             (if (equal? (error-exception-message e) 'no-such-key)
+               '()
+               (raise e)))
+           (lambda ()
+             (list (ra::dictionary-ref dictionary key)))))))))
 
 
 (define (ra::set-label obj key val)
