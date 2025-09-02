@@ -28,10 +28,15 @@
   (cdr (assq sexp ast-objects-lvl-up)))
 
 
-(define sexp-ast-obj-pairs '())
+(define sexp-ast-obj-pairs (make-table))
+
 
 (define (add-sexp! sexp code-slice)
-  (set! sexp-ast-obj-pairs (cons (cons sexp code-slice) sexp-ast-obj-pairs)))
+  (table-set! sexp-ast-obj-pairs sexp code-slice))
+
+
+(define (get-code-slice sexp)
+  (table-ref sexp-ast-obj-pairs sexp #f))
 
 
 (define (sexp-refs sexp)
@@ -50,12 +55,12 @@
 
 
 (define (sexp->code sexp)
-  (define res (assq sexp sexp-ast-obj-pairs))
+  (define res (get-code-slice sexp))
   (if (not res)
     #!void
-    `(list ,(ast-obj-path (cdr res))
-           (quote ,(code-ast-obj-lines-cols (cdr res)))
-           ,(code-ast-obj->string (cdr res))
+    `(list ,(ast-obj-path res)
+           (quote ,(code-ast-obj-lines-cols res))
+           ,(code-ast-obj->string res)
            (quote ,(sexp-refs sexp)))))
 
 
