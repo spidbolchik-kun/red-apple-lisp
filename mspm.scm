@@ -75,18 +75,21 @@
   (error (make-mspm-error #f (list err sexp))))
 
 
-(define (read-and-parse-module full-path)
+(define (read-and-parse-module full-path #!key import-code)
   (let ((result
     (with-exception-catcher
       identity
       (lambda () (parse (read-file-string full-path) full-path)))))
-    (if (or (no-such-file-or-directory-exception? result)
-            (parsing-error? result))
-      (error
-        (make-mspm-error
-          full-path
-          (list (parsing-error-type result) (parsing-error-marked result))))
-      (make-module full-path result))))
+    (if (no-such-file-or-directory-exception? result)
+      (if (not import-code)
+        (crash 'no-such-file full-path)
+        (crash 'nonexistent-file-in-import-statement import-code))
+      (if (parsing-error? result)
+        (error
+          (make-mspm-error
+            full-path
+            (list (parsing-error-type result) (parsing-error-marked result))))
+        (make-module full-path result)))))
 
 
 (define (assert-not-forbidden-ref sexp)
@@ -740,9 +743,9 @@
         (string-append library-path path)))))
 
 
-(define (read-and-parse-module-by-path! full-path)
+(define (read-and-parse-module-by-path! full-path #!key import-code)
   (if (equal? #!void (find-one (equal-to full-path) modules-code))
-    (let* ((parsed (read-and-parse-module full-path))
+    (let* ((parsed (read-and-parse-module full-path import-code: import-code))
            (sexp-code
              (fn-if (not (equal? full-path (get-module-full-path "builtins.ra")))
                     (lambda (code) (cons '("import-from" ("quote" "builtins.ra")) code))
@@ -800,7 +803,7 @@
     (crash 'invalid-import-format (sexp->code sexp))
     (let ()
       (define full-path (get-module-full-path (cadadr imp-st) ci: ci))
-      (read-and-parse-module-by-path! full-path)
+      (read-and-parse-module-by-path! full-path import-code: (sexp->code (cadadr sexp)))
       (if (equal? sym-dest #!void)
         `(begin
            ,@((map-over (get-module-varnames full-path))

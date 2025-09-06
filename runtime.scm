@@ -224,6 +224,10 @@
                  )
                )
               )
+              ((equal? (error-exception-message e) 'no-such-file)
+               (ra::display-err (car (error-exception-parameters e)))
+               (ra::display-err "\n")
+              )
                (else
                  (let ()
                    (define error-params (cdar (error-exception-parameters e)))
