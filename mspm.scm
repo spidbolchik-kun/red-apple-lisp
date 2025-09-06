@@ -722,7 +722,11 @@
        (if (unbound-global-exception? e)
          (error 'unbound-variable ,(sexp->code val))
          (raise e)))
-     (lambda () ,(get-variable-symbol! val (list (codegen-info-path ci))))))
+     (lambda ()
+       (let ((res ,(get-variable-symbol! val (list (codegen-info-path ci)))))
+         (if (equal? res #!unbound)
+           (error 'unbound-variable ,(sexp->code val))
+           res)))))
 
 
 (define (get-module-full-path path #!key ci)
