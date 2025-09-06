@@ -9,7 +9,7 @@
 (include "runtime.scm")
 
 
-(define statements '("define" "define-macro" "do" "assign" "import" "assert"))
+(define statements '("define" "define-macro" "do" "assign" "import-from" "assert"))
 
 
 (define primitive-forms
@@ -740,7 +740,7 @@
     (let* ((parsed (read-and-parse-module full-path))
            (sexp-code
              (fn-if (not (equal? full-path (get-module-full-path "builtins.ra")))
-                    (lambda (code) (cons '("import" ("quote" "builtins.ra")) code))
+                    (lambda (code) (cons '("import-from" ("quote" "builtins.ra")) code))
                     (cadr (ast-obj->sexp (module-ast-tree parsed))))))
       (set! modules-code (cons full-path modules-code))
       (let ((maybe-error
@@ -766,6 +766,18 @@
   (define (get-variable-sym-with-pref! varname)
     (get-variable-symbol! varname (list (codegen-info-path ci))))
 
+  (define (get-pref sexp* #!key (cont identity))
+    (if (null? sexp*)
+      (cons "" (cont '()))
+      (if (equal? (car sexp*) "with-prefix:")
+        (if (null? (cdr sexp*))
+          (crash 'unspecified-import-prefix (sexp->code sexp))
+          (if (not (string? (cadr sexp*)))
+            (crash 'prefix-is-not-a-symbol (sexp->code sexp))
+            (cons (cadr sexp*) (cont (cddr sexp*)))))
+        (get-pref (cdr sexp*)
+          cont: (lambda (acc) (cont (cons (car sexp*) acc)))))))
+
   (if (or (not (= (length sexp) 2))
           (not (list? (cadr sexp)))
           (not (equal? (caadr sexp) "quote"))
@@ -784,6 +796,12 @@
 
 
 (define (ns->scheme sexp ci)
+  (define (val-from-car sexp)
+    (let ((val (val->scheme (car sexp) ci)))
+      (if (equal? (length sexp) 1)
+        val
+        `(define ,(gensym!) ,val))))
+
   (if (null? sexp)
     '()
     (let ((sexp (prepare-first-statement sexp)))
@@ -792,14 +810,15 @@
                  (not (null? (car sexp))))
           (if (equal? "assign" (caar sexp))
             (var-setter ci (cadar sexp) (caddar sexp))
-            (if (equal? "import" (caar sexp))
+            (if (equal? "import-from" (caar sexp))
               (import-module! (car sexp) ci)
               (if (equal? "assert" (caar sexp))
                 (let ((expr (val->scheme `("and" ,@(map (lambda (v) v) (cdar sexp))) ci)))
-                  `(if (not ,expr)
-                     (error 'contract-violation ,(sexp->code (car sexp)))))
-                (val->scheme (car sexp) ci))))
-          (val->scheme (car sexp) ci))
+                  `(define ,(gensym!)
+                     (if (not ,expr)
+                       (error 'contract-violation ,(sexp->code (car sexp))))))
+                (val-from-car sexp))))
+          (val-from-car sexp))
         (ns->scheme (cdr sexp) ci)))))
 
 
