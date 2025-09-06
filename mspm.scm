@@ -815,7 +815,9 @@
                  (dct-sym (gensym!))
                  (getters-sym (gensym!)))
             (for-each
-              (lambda (v) (member v (get-module-varnames full-path)))
+              (lambda (v)
+                (if (not (member v (get-module-varnames full-path)))
+                  (crash 'undefined-variable (sexp->code v))))
               imported-tl)
             `(begin
                (define ,dct-sym
