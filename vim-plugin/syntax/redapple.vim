@@ -22,7 +22,7 @@ syn match schemeParentheses "[)\]]"
 
 syn match schemeIdentifier /[^ '`\t\n()\[\]"|;][^ '`\t\n()\[\]"|;]*/
 
-syn region schemeQuote matchgroup=schemeData start=/'[`']*/ end=/[ \t\n()\[\]";]/me=e-1
+syn region schemeQuote matchgroup=schemeData start=/'[`']*/ end=/[ \t\n()\[\]}";]/me=e-1
 syn region schemeQuote matchgroup=schemeData start=/'['`]*"/ skip=/\\[\\"]/ end=/"/
 syn region schemeQuote matchgroup=schemeData start=/'['`]*|/ skip=/\\[\\|]/ end=/|/
 syn region schemeQuote matchgroup=schemeData start=/'['`]*#\?(/ end=/)/ contains=ALLBUT,schemeQuasiquote,schemeQuasiquoteForm,schemeUnquote,schemeForm,schemeDatumCommentForm,schemeImport,@schemeImportCluster,@schemeSyntaxCluster
@@ -63,7 +63,7 @@ syn region schemeVector matchgroup=schemeData start="#[fsu]\d\+(" end=")" contai
 if exists('g:is_chicken') || exists('b:is_chicken')
   syn region schemeImport matchgroup=schemeImport start="\(([ \t\n]*\)\@<=\(import\|import-syntax\|use\|require-extension\)\(-for-syntax\)\?\>" end=")"me=e-1 contained contains=schemeImportForm,schemeIdentifier,schemeComment,schemeDatumComment
 else
-  syn region schemeImport matchgroup=schemeImport start="\(([ \t\n]*\)\@<=\(import\)\>" end=")"me=e-1 contained contains=schemeImportForm,schemeIdentifier,schemeComment,schemeDatumComment
+  syn region schemeImport matchgroup=schemeImport start="\(([ \t\n]*\)\@<=\(import-from\)\>" end=")"me=e-1 contained contains=schemeImportForm,schemeIdentifier,schemeComment,schemeDatumComment
 endif
 
 syn match   schemeImportKeyword "\(([ \t\n]*\)\@<=\(except\|only\|prefix\|rename\)\>"
@@ -113,6 +113,8 @@ syn keyword schemeFunction >
 syn keyword schemeFunction >=
 
 syn keyword schemeFunction compose
+syn keyword schemeFunction read-file-string!
+syn keyword schemeFunction item
 syn keyword schemeFunction o
 syn keyword schemeFunction list:*
 syn keyword schemeFunction list:+
