@@ -274,6 +274,7 @@
       var-ls
       (crash 'duplicate-definitions (sexp->code sexp)))))
 
+
 (define (destructuring-identifiers sexp)
   (define (inner sexp #!key acc-or-false rest)
     (define acc
@@ -778,21 +779,59 @@
         (get-pref (cdr sexp*)
           cont: (lambda (acc) (cont (cons (car sexp*) acc)))))))
 
-  (if (or (not (= (length sexp) 2))
-          (not (list? (cadr sexp)))
-          (not (equal? (caadr sexp) "quote"))
-          (not (= (length (cadr sexp)) 2))
-          (not (string? (cadadr sexp))))
+  (define pref/imp-st (get-pref sexp))
+  (define pref (car pref/imp-st))
+  (define imp-st (cdr pref/imp-st))
+  (define sym-dest #!void)
+  (if (> (length imp-st) 2)
+    (begin
+      (set! sym-dest (last imp-st))
+      (set! imp-st (but-last imp-st))))
+
+  (if (or (not (= (length imp-st) 2))
+          (not (list? (cadr imp-st)))
+          (not (equal? (caadr imp-st) "quote"))
+          (not (= (length (cadr imp-st)) 2))
+          (not (string? (cadadr imp-st))))
     (crash 'invalid-import-format (sexp->code sexp))
     (let ()
-      (define full-path (get-module-full-path (cadadr sexp) ci: ci))
+      (define full-path (get-module-full-path (cadadr imp-st) ci: ci))
       (read-and-parse-module-by-path! full-path)
-      `(begin
-         ,@((map-over (get-module-varnames full-path))
-            (lambda (varname)
-              `(define
-                 ,(get-variable-symbol! varname (list (codegen-info-path ci)))
-                 ,(get-variable-symbol! varname (list full-path)))))))))
+      (if (equal? sym-dest #!void)
+        `(begin
+           ,@((map-over (get-module-varnames full-path))
+              (lambda (varname)
+                `(define
+                   ,(get-variable-symbol!
+                      (string-append pref varname)
+                      (list (codegen-info-path ci)))
+                   ,(get-variable-symbol! varname (list full-path))))))
+        (if (not (quoted-kv? sym-dest))
+          (crash 'expected-a-dictionary (sexp->code sym-dest))
+          (let* ((dest
+                   ((map-over (destructuring-identifiers sym-dest))
+                    (lambda (v) (cons (string-append pref (car v)) (cdr v)))))
+                 (imported-tl (unique (map cdadr dest)))
+                 (dct-sym (gensym!))
+                 (getters-sym (gensym!)))
+            (for-each
+              (lambda (v) (member v (get-module-varnames full-path)))
+              imported-tl)
+            `(begin
+               (define ,dct-sym
+                 (make-ra::dictionary
+                   (list
+                     ,@(map (lambda (k)
+                              `(cons ,k ,(get-variable-symbol! k (list full-path))))
+                            imported-tl))))
+               (define ,getters-sym (ra::assignment->ns (quote ,dest) ,dct-sym))
+               ,@((map-over dest)
+                  (lambda (kv)
+                    (if (codegen-info-is-top-level ci)
+                      (add-module-top-level-varname! (codegen-info-path ci) (car kv)))
+                    `(define ,(get-variable-sym-with-pref! (car kv))
+                       (cdr (assoc ,(car kv) ,getters-sym))))))))))))
+
 
 
 (define (ns->scheme sexp ci)
