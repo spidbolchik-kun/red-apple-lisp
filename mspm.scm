@@ -817,7 +817,9 @@
                   `(define ,(gensym!)
                      (if (not ,expr)
                        (error 'contract-violation ,(sexp->code (car sexp))))))
-                (val-from-car sexp))))
+                (if (equal? "do" (caar sexp))
+                  `(begin ,@(ns->scheme (cdar sexp) ci))
+                  (val-from-car sexp)))))
           (val-from-car sexp))
         (ns->scheme (cdr sexp) ci)))))
 
@@ -913,7 +915,7 @@
              (crash 'empty-if-branch (sexp->code (car sexp))))
            (if (> (length (cdr sexp)) 3)
              (crash 'if-branch-too-many-args (sexp->code sexp)))
-           `(if ,@(continue (cdr sexp))))
+           `(if ,@(continue (map (lambda (b) `("let" ,b)) (cdr sexp)))))
 
           ((equal? (car sexp) "let")
            (if (null? (cdr sexp))
@@ -922,7 +924,8 @@
               ,@(ns->scheme (cdr sexp) (codegen-info-is-top-level-set new-ci #f))))
 
           ((member (car sexp) '("and" "or"))
-           `(,(string->symbol (car sexp)) ,@(continue (cdr sexp))))
+           `(,(string->symbol (car sexp))
+              ,@(continue (map (lambda (b) `("let" ,b)) (cdr sexp)))))
 
           ((equal? (car sexp) "fn")
            (if (< (length (cdr sexp)) 2)
