@@ -28,7 +28,7 @@
   (cdr (assq sexp ast-objects-lvl-up)))
 
 
-(define sexp-ast-obj-pairs (make-table))
+(define sexp-ast-obj-pairs (make-table test: eq?))
 
 
 (define (add-sexp! sexp code-slice)
