@@ -169,3 +169,8 @@
 
 ; Procedure wrapper for custom call and argument passing semantics.
 (define-structure ra::procedure code meta enclosed)
+
+
+; Values not known at compile tile
+(define-structure ra::me-hole-type)
+(define ra::me-hole (make-ra::me-hole-type))

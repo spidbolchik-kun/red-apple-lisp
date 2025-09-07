@@ -6,6 +6,10 @@
 (define *sym->num* (make-table))
 
 
+(define sym-ns-map (make-table test: eq?))
+(define injected-map (make-table test: eq?))
+
+
 (define (add-v-prefix num)
   (string->symbol
     (string-append
@@ -19,8 +23,8 @@
     (add-v-prefix old-counter)))
 
 
-(define (get-variable-symbol! name prefix)
-  (let* ((pair (cons name prefix))
+(define (get-variable-symbol! name mod-path)
+  (let* ((pair (list name mod-path (table-ref sym-ns-map name #f)))
          (num (table-ref *sym->num* pair #f))
          (old-counter *variable-counter*))
     (add-v-prefix
@@ -35,108 +39,115 @@
 (define cn-rec-sym (get-variable-symbol! "#cn:rec" #!void))
 
 
+(define ast-objects-lvl-up '())
+
+
+(define (ast-obj-lvl-up-set! sexp parent)
+  (set! ast-objects-lvl-up (cons (cons sexp parent) ast-objects-lvl-up)))
+
+
+(define (get-parent-ast-obj sexp)
+  (cdr (assq sexp ast-objects-lvl-up)))
+
+
+(define sexp-ast-obj-pairs (make-table test: eq?))
+
+
+(define (add-sexp! sexp code-slice)
+  (table-set! sexp-ast-obj-pairs sexp code-slice))
+
+
+(define (get-code-slice sexp)
+  (table-ref sexp-ast-obj-pairs sexp #f))
+
+
+(define (ra::inject sym)
+  (if (table-ref sym-ns-map sym #f)
+    sym
+    (let ((cpy (string-copy sym)))
+      (add-sexp! cpy (get-code-slice sym))
+      (table-set! injected-map cpy #t)
+      cpy)))
+
+
+(define (ra::set-ns sym ns)
+  (if (table-ref sym-ns-map sym #f)
+    sym
+    (let ((cpy (string-copy sym)))
+      (add-sexp! cpy (get-code-slice sym))
+      (table-set! sym-ns-map cpy ns)
+      cpy)))
+
+
+(define (ra::erase-ns sym)
+  (let ((cpy (string-copy sym)))
+    (add-sexp! cpy (get-code-slice sym))
+    cpy))
+
+
+(define *ns-counter* 0)
+
+
+(define-structure me-ns num dict parent-or-modpath children)
+
+
+(define (me-ns-module-path ns)
+  (let ((res (me-ns-parent-or-modpath ns)))
+    (if (string? res)
+      res
+      (me-ns-module-path res))))
+
+
+(define modules (make-table))
+
+
+(define (syms-equal? x y)
+  (equal? (cons x (table-ref sym-ns-map x #f))
+          (cons y (table-ref sym-ns-map y #f))))
+
+
+(define (get-module-ns! normalized-path)
+  (let ((res (table-ref modules normalized-path #f)))
+    (if res res
+      (begin
+        (table-set! modules normalized-path
+          (make-me-ns *ns-counter* (make-table test: syms-equal?) normalized-path '()))
+        (set! *ns-counter* (+ *ns-counter* 1))
+        (table-ref modules normalized-path)))))
+
+
+(define (me-ns-branch-out! ns)
+  (define new-ns (make-me-ns *ns-counter* (make-table test: syms-equal?) ns '()))
+  (set! *ns-counter* (+ *ns-counter* 1))
+  (me-ns-children-set! ns (cons new-ns (me-ns-children ns)))
+  new-ns)
+
+
+(define (me-ns-set-var! ns sym value)
+  (let ((dict (me-ns-dict ns)))
+    (with-exception-catcher
+      (lambda (e)
+        (if (unbound-key-exception? e)
+          (table-set! dict sym value)
+          (raise e)))
+      (lambda ()
+        (table-ref dict sym)
+        (error 'duplicate-definitions sym)))))
+
+
 ; Used to distinguish between regular procedures and procedures
 ; defined using the <define-macro> special form.
 ; Keys are <ra::procedure>s, values are s-expression tree paths.
-(define *syntactic-procedures* (make-table))
+(define *syntactic-procedures* (make-table test: eq?))
 
 
-(define (add-syntactic-procedure! proc ns-or-path)
-  (table-set! *syntactic-procedures*
-              proc
-              (fn-if ct-ns? ct-ns-path ns-or-path)))
+(define (add-syntactic-procedure! proc ns)
+  (table-set! *syntactic-procedures* proc ns))
 
 
-(define (get-syntactic-procedure-path obj)
+(define (get-syntactic-procedure-ns obj)
   (table-ref *syntactic-procedures* obj #f))
 
 
-; Namespaces with values known in compile-time.
-; Contain lists of not statically known values.
-; 
-; Namespace paths are of format:
-;  `(,@<node-paths-in-s-expression-tree-in-normal-form>
-;  <normalized-module-path>)
-(define-structure ct-ns path dyn dictionary)
-
-
-(define *ct-ns-table* (make-table))
-
-
-(define (ns-by-path ns-or-path)
-  (if (ct-ns? ns-or-path)
-    ns-or-path
-    (table-ref *ct-ns-table* ns-or-path)))
-
-
-(define (ct-ns-ref ns-or-path sym)
-  (let loop ((path (fn-if ct-ns? ct-ns-path ns-or-path)))
-    (let ((ns (table-ref *ct-ns-table* path)))
-      (if (member sym (ct-ns-dyn ns))
-        (error 'variable-not-statically-known sym))
-      (with-exception-catcher
-        (lambda (e)
-          (if (and (error-exception? e)
-                   (equal? (error-exception-message 'no-such-key)))
-            (if (= (length path) 1)
-              (error 'undefined-variable sym)
-              (loop (table-ref *ct-ns-table* (cdr path))))
-            (raise e)))
-        (lambda () (ra::dictionary-ref (ct-ns-dictionary ns) sym))))))
-
-
-(define (ct-ns-set! ns-or-path sym value)
-  (let ((ns (ns-by-path ns-or-path)))
-    (ct-ns-dictionary-set! ns
-      (ra::dictionary-set (ct-ns-dictionary ns) sym value))))
-
-
-(define (ct-ns-not-statically-known-set! ns-or-path sym)
-  (let ((ns (ns-by-path ns-or-path)))
-    (ct-ns-dyn-set! ns (cons sym (ct-ns-dyn ns)))))
-
-
-(define (ct-ns-branch-out! ns-or-path child-node)
-  (let* ((path (cons child-node (fn-if ct-ns? ct-ns-path ns-or-path)))
-         (ns (make-ct-ns path '() ra::empty-dictionary)))
-    (table-set! *ct-ns-table* path ns)
-    ns))
-
-
-; Normalized modules code
-(define *mod-sexps* '())
-
-
-(define (add-module-code! normalized-path sexp)
-  (if (assoc normalized-path sexp)
-    (error 'module-already-exists normalized-path))
-  (set! *mod-sexps* (cons `(,normalized-path . ,sexp) *mod-sexps*)))
-
-
-(define (get-ns-sexp ns-or-path)
-  (let ((path (fn-if ct-ns? ct-ns-path ns-or-path)))
-    (let loop ((nodes (apply append (reverse (but-last path))))
-               (code (cdr (assoc (last path) *mod-sexps*))))
-      (if (null? nodes)
-        code
-        (loop (cdr nodes) ((caar nodes) code (cadar nodes)))))))
-
-
-; TODO переделать
-
-(define *mod-top-level-varnames* '())
-
-(define (add-module-top-level-varname! full-path varname)
-  (define new
-    (let loop ((modules *mod-top-level-varnames*))
-      (if (null? modules)
-        `((,full-path . (,varname)))
-        (if (equal? (caar modules) full-path)
-          (cons (cons (caar modules) (cons varname (cdar modules)))
-                (cdr modules))
-          (cons (car modules) (loop (cdr modules)))))))
-  (set! *mod-top-level-varnames* new))
-
-
 (define (get-module-varnames full-path)
-  (cdr (assoc full-path *mod-top-level-varnames*)))
+  (map car (table->list (me-ns-dict (get-module-ns! full-path)))))

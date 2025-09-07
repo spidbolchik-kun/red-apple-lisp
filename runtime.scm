@@ -340,7 +340,6 @@
 (define-structure ra::ns current parent prefix)
 
 
-(define ra::modules '())
 (define ra::macro-prefixes '())
 (define ra::scheme-code-cont identity)
 
@@ -349,23 +348,6 @@
   (define cont ra::scheme-code-cont)
   (set! ra::scheme-code-cont
     (lambda (acc) (cont (cons statement acc)))))
-
-
-(define (ra::add-module! path)
-  (define new-modules
-    (cons (make-ra::ns ra::empty-dictionary #!void (list path))
-          ra::modules))
-  (set! ra::modules new-modules))
-
-
-(define (ra::get-module path)
-  (define (inner modules)
-    (if (null? modules)
-      (error 'unknown-module path)
-      (if (equal? path (car (ra::ns-prefix (car modules))))
-        (car modules)
-        (inner (cdr modules)))))
-  (inner ra::modules))
 
 
 (define-syntax ra::ns-ref
