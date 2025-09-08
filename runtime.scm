@@ -186,6 +186,9 @@
               ((equal? (error-exception-message e) 'unbound-variable)
                (show-runtime-error (last (error-exception-parameters e)))
               )
+              ((equal? (error-exception-message e) 'attempted-to-use-unbound-values-in-macro)
+               (show-runtime-error (last (error-exception-parameters e)))
+              )
               ((member (error-exception-message e)
                        '(unexpected-keyword-arg arg-passed-twice))
                (let ()
@@ -695,9 +698,7 @@
 
       (if (procedure? callable*)
         (perform-call meta)
-        (if (or (list? callable*) (ra::dictionary? callable*))
+        (if (or (list? callable*) (ra::dictionary? callable*) (string? callable*))
           (ra::get callable* positional
-            stop-on-void:
-              (let ((stop-on-void (assoc "stop-on-nil" kw)))
-                (and stop-on-void ((cdr stop-on-void) #!void))))
+            stop-on-void: (if (assoc "stop-on-nil" kw) #t #f))
           (error 'not-a-callable-value callable* call-info)))))
