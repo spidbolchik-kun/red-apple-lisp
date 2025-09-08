@@ -1,3 +1,5 @@
+[logo](logo.png)
+
 Install
 -----------------------------------------------------
 If Gambit is not installed, follow the instructions [here](https://github.com/gambit/gambit).
