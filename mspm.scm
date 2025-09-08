@@ -682,7 +682,7 @@
          (raise e)))
      (lambda ()
        (let ((res ,(get-variable-symbol! val (codegen-info-path ci))))
-         (if (equal? res #!unbound)
+         (if (or (equal? res #!unbound) (equal? res ra::unbound))
            (error 'unbound-variable ,(sexp->code val))
            res)))))
 
@@ -760,14 +760,19 @@
       (define full-path (get-module-full-path (cadadr imp-st) ci: ci))
       (read-and-parse-module-by-path! full-path import-code: (sexp->code (cadadr sexp)))
       (if (equal? sym-dest #!void)
-        `(begin
-           ,@((map-over (get-module-varnames full-path))
-              (lambda (varname)
-                `(define
-                   ,(get-variable-symbol!
-                      (string-append pref varname)
-                      (codegen-info-path ci))
-                   ,(get-variable-symbol! varname full-path)))))
+        (let ()
+          (define import-statement (cons 'begin #!void))
+          (define (run-import-statement)
+            (set-cdr! import-statement
+               ((map-over (get-module-varnames full-path))
+                (lambda (varname)
+                  `(define
+                     ,(get-variable-symbol!
+                        (string-append pref varname)
+                        (codegen-info-path ci))
+                     ,(get-variable-symbol! varname full-path))))))
+          (add-deferred-import-statement! run-import-statement)
+          import-statement)
         (if (not (quoted-kv? sym-dest))
           (crash 'expected-a-dictionary (sexp->code sym-dest))
           (let* ((dest
@@ -776,11 +781,13 @@
                  (imported-tl (unique (map cdadr dest)))
                  (dct-sym (gensym!))
                  (getters-sym (gensym!)))
-            (for-each
-              (lambda (v)
-                (if (not (member v (get-module-varnames full-path)))
-                  (crash 'undefined-variable (sexp->code v))))
-              imported-tl)
+            (add-deferred-import-statement!
+              (lambda ()
+                (for-each
+                  (lambda (v)
+                    (if (not (member v (get-module-varnames full-path)))
+                      (crash 'undefined-variable (sexp->code v))))
+                  imported-tl)))
             `(begin
                (define ,dct-sym
                  (make-ra::dictionary
@@ -1036,10 +1043,12 @@
     (let* ((absolute-path (get-absolute-path file-path))
            (path-to-scm-file (string-append absolute-path ".tmp.scm")))
       (read-and-parse-module-by-path! absolute-path)
+      (run-deferred-import-statements!)
       (call-with-output-file
         path-to-scm-file
         (let ((scheme-code
-                (cons `(include ,(get-module-full-path "runtime.scm"))
+                (list `(include ,(get-module-full-path "runtime.scm"))
+                      (enumerate-variables-set-unbound)
                       (get-scheme-code))))
           (lambda (port)
             (for-each (lambda (sexp) (write sexp port)) scheme-code))))
@@ -1059,6 +1068,10 @@
     (let* ((absolute-path (get-absolute-path file-path))
            (path-to-scm-file (string-append absolute-path ".tmp.scm")))
       (read-and-parse-module-by-path! absolute-path)
-      (let ((scheme-code (cons 'begin (get-scheme-code))))
+      (run-deferred-import-statements!)
+      (let ((scheme-code
+              (cons 'begin
+                 (cons (enumerate-variables-set-unbound)
+                       (get-scheme-code)))))
         (set! code-to-eval scheme-code)
         (eval code-to-eval)))))

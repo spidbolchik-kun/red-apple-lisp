@@ -174,3 +174,7 @@
 ; Values not known at compile tile
 (define-structure ra::me-hole-type)
 (define ra::me-hole (make-ra::me-hole-type))
+
+
+(define-structure ra::unbound-type)
+(define ra::unbound (make-ra::unbound-type))

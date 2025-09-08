@@ -17,6 +17,12 @@
       (number->string num))))
 
 
+(define (enumerate-variables-set-unbound)
+  (cons 'begin
+    (map (lambda (v) `(define ,v ra::unbound))
+         (map add-v-prefix (iota *variable-counter*)))))
+
+
 (define (gensym!)
   (let ((old-counter *variable-counter*))
     (set! *variable-counter* (+ 1 *variable-counter*))
@@ -151,3 +157,14 @@
 
 (define (get-module-varnames full-path)
   (map car (table->list (me-ns-dict (get-module-ns! full-path)))))
+
+
+(define deferred-import-statements '())
+
+
+(define (add-deferred-import-statement! proc)
+  (set! deferred-import-statements (cons proc deferred-import-statements)))
+
+
+(define (run-deferred-import-statements!)
+  (for-each (lambda (p) (p)) deferred-import-statements))
