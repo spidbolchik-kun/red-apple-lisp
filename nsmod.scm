@@ -141,20 +141,6 @@
         (error 'duplicate-definitions sym)))))
 
 
-; Used to distinguish between regular procedures and procedures
-; defined using the <define-macro> special form.
-; Keys are <ra::procedure>s, values are s-expression tree paths.
-(define *syntactic-procedures* (make-table test: eq?))
-
-
-(define (add-syntactic-procedure! proc ns)
-  (table-set! *syntactic-procedures* proc ns))
-
-
-(define (get-syntactic-procedure-ns obj)
-  (table-ref *syntactic-procedures* obj #f))
-
-
 (define (get-module-varnames full-path)
   (map car (table->list (me-ns-dict (get-module-ns! full-path)))))
 
@@ -167,4 +153,4 @@
 
 
 (define (run-deferred-import-statements!)
-  (for-each (lambda (p) (p)) deferred-import-statements))
+  (for-each (lambda (p) (p)) (reverse deferred-import-statements)))

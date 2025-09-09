@@ -178,3 +178,6 @@
 
 (define-structure ra::unbound-type)
 (define ra::unbound (make-ra::unbound-type))
+
+
+(define-structure ra::procedure-code scheme-code me-ns is-syntactic)

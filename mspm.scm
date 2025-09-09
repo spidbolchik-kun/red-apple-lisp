@@ -682,9 +682,11 @@
          (raise e)))
      (lambda ()
        (let ((res ,(get-variable-symbol! val (codegen-info-path ci))))
-         (if (or (equal? res #!unbound) (equal? res ra::unbound))
+         (if (or (equal? res #!unbound) (eq? res ra::unbound))
            (error 'unbound-variable ,(sexp->code val))
-           res)))))
+           (if (eq? res ra::me-hole)
+             (error 'attempted-to-use-unbound-values-in-macro ,(sexp->code val))
+             res))))))
 
 
 (define (get-module-full-path path #!key ci)
@@ -713,11 +715,10 @@
               (error-exception-message e)
               e))
           (lambda ()
-            (for-each
-              ra::push-scheme-statement!
-              (ns->scheme
-                sexp-code
-                (make-codegen-info (get-module-ns! full-path) #f)))))))
+            (ns->scheme
+              sexp-code
+              (make-codegen-info (get-module-ns! full-path) #f))
+            #!void))))
         (if (mspm-error? maybe-error)
           (error (mspm-error-path-set maybe-error full-path))
           (if (equal? maybe-error #!void)
@@ -815,7 +816,7 @@
   (if (null? sexp)
     '()
     (let ((sexp (prepare-first-statement sexp)))
-      (cons 
+      (define fst-exp
         (if (and (list? (car sexp))
                  (not (null? (car sexp))))
           (if (equal? "assign" (caar sexp))
@@ -830,8 +831,10 @@
                 (if (equal? "do" (caar sexp))
                   `(begin ,@(ns->scheme (cdar sexp) ci))
                   (val-from-car sexp)))))
-          (val-from-car sexp))
-        (ns->scheme (cdr sexp) ci)))))
+          (val-from-car sexp)))
+      (if (codegen-info-is-top-level ci)
+        (ra::push-scheme-statement! fst-exp))
+      (cons fst-exp (ns->scheme (cdr sexp) ci)))))
 
 
 (define (list->scheme sexp ci #!key unpack (cont identity))
