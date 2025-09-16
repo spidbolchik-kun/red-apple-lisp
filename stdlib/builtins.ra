@@ -17,7 +17,7 @@
   (assert (or (list? value) (kv? value)))
   (if (list? value)
     (##null? value)
-    (ra::dictionary-empty? (ra::data value))))
+    (ra::dictionary-empty? value)))
 
 
 (define (push value to)
@@ -273,7 +273,7 @@
 
 
 (define (take n from)
-  (if (or (empty? from) (== n 0))
+  (if (or (empty? from) (<= n 0))
     from
     (take (- n 1) (tail from))))
 

@@ -340,6 +340,21 @@
       (take dropped (max 0 (- end start))))))
 
 
+(define (ra::ns-ref ref-fn code)
+  (with-exception-catcher
+    (lambda (e)
+      (if (unbound-global-exception? e)
+        (error 'unbound-variable code)
+        (raise e)))
+    (lambda ()
+      (let ((res (ref-fn)))
+        (if (or (equal? res #!unbound) (eq? res ra::unbound))
+          (error 'unbound-variable code)
+          (if (eq? res ra::me-hole)
+            (error 'attempted-to-use-unbound-values-in-macro code)
+            res))))))
+
+
 (define-structure ra::ns current parent prefix)
 
 
@@ -351,14 +366,6 @@
   (define cont ra::scheme-code-cont)
   (set! ra::scheme-code-cont
     (lambda (acc) (cont (cons statement acc)))))
-
-
-(define-syntax ra::ns-ref
-  (syntax-rules (key-and-default)
-    ((_ sym-str scheme-sym)
-     (with-exception-catcher
-       (lambda (e) (error 'unbound-variable sym-str))
-       (lambda () scheme-sym)))))
 
 
 (define (ra::add-macro-prefix! macro pref)

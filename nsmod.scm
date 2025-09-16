@@ -25,20 +25,27 @@
 
 (define (gensym!)
   (let ((old-counter *variable-counter*))
+    (define vsym (add-v-prefix old-counter))
     (set! *variable-counter* (+ 1 *variable-counter*))
-    (add-v-prefix old-counter)))
+    (eval `(define ,vsym ra::unbound))
+    vsym))
 
 
 (define (get-variable-symbol! name mod-path)
   (let* ((pair (list name mod-path (table-ref sym-ns-map name #f)))
          (num (table-ref *sym->num* pair #f))
          (old-counter *variable-counter*))
-    (add-v-prefix
-      (if num num
-        (begin
-          (table-set! *sym->num* pair *variable-counter*)
-          (set! *variable-counter* (+ 1 *variable-counter*))
-          old-counter)))))
+    (let ()
+      (define vsym
+        (add-v-prefix
+          (if num num
+            (begin
+              (table-set! *sym->num* pair *variable-counter*)
+              (set! *variable-counter* (+ 1 *variable-counter*))
+              old-counter))))
+      (if (not num)
+        (eval `(define ,vsym ra::unbound)))
+      vsym)))
 
 
 (define rec-sym (get-variable-symbol! "#rec" #!void))
@@ -154,3 +161,52 @@
 
 (define (run-deferred-import-statements!)
   (for-each (lambda (p) (p)) (reverse deferred-import-statements)))
+
+
+(define (with-dynamic-ns ns final-scheme-expr)
+  (define path (me-ns-module-path ns))
+  (define flat (make-table test: syms-equal?))
+
+  (define (flatten ns)
+    (for-each
+      (lambda (kv)
+        (if (not (table-ref flat (car kv) #f))
+          (table-set! flat (car kv) (cdr kv))))
+      (table->list (me-ns-dict ns)))
+    (if (not (string? (me-ns-parent-or-modpath ns)))
+      (flatten (me-ns-parent-or-modpath ns))))
+
+  (define (build-scheme-sexp alist)
+    (if (null? alist)
+      (list final-scheme-expr)
+      (cons `(define ,(get-variable-symbol! (caar alist) path)
+               ,(if (symbol? (cdar alist))
+                  (cdar alist)
+                  (procedure-with-dynamic-ns (cdar alist))))
+            (build-scheme-sexp (cdr alist)))))
+
+  (flatten ns)
+
+  `(let () ,@(build-scheme-sexp (table->list flat))))
+
+
+(define procedure-ns-table (make-table test: eq?))
+(define syntactic-procedures (make-table test: eq?))
+
+(define (add-procedure-ns! proc-sexp ns)
+  (table-set! procedure-ns-table proc-sexp ns))
+
+(define (get-procedure-ns proc-sexp)
+  (table-ref procedure-ns-table proc-sexp))
+
+(define (declare-procedure-a-macro! proc-sexp)
+  (table-set! syntactic-procedures proc-sexp #t))
+
+(define (macro? proc-sexp)
+  (table-ref syntactic-procedures proc-sexp #f))
+
+(define (procedure-sexp? sexp-code)
+  (if (table-ref procedure-ns-table sexp-code #f) #t #f))
+
+(define (procedure-with-dynamic-ns proc-sexp)
+  (with-dynamic-ns (get-procedure-ns proc-sexp) proc-sexp))

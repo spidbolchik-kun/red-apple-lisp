@@ -655,38 +655,54 @@
   (define (get-variable-sym-with-pref! varname)
     (get-variable-symbol! varname (codegen-info-path ci)))
 
+  (define scm-val (val->scheme rval ci))
+
   (if (not (quoted-structure? lval))
     (let ((ci (codegen-info-assignment-to-set ci lval)))
-      (if (codegen-info-is-top-level ci)
-        (codegen-info-set-var! ci lval #!void))
-      `(define ,(get-variable-sym-with-pref! lval) ,(val->scheme rval ci)))
+      (codegen-info-set-var! ci lval
+        (if (procedure-sexp? rval)
+          rval
+          (eval-sc-sexp-to-tmpvar (with-dynamic-ns (codegen-info-ns ci) scm-val))))
+      `(define ,(get-variable-sym-with-pref! lval) ,scm-val))
     (let ((getters (destructuring-identifiers lval))
           (tmp-value-sym (gensym!))
           (getters-sym (gensym!)))
       `(begin
-         (define ,tmp-value-sym ,(val->scheme rval ci))
+         (define ,tmp-value-sym ,scm-val)
          (define ,getters-sym (ra::assignment->ns (quote ,getters) ,tmp-value-sym))
          ,@((map-over getters)
             (lambda (kv)
-              (if (codegen-info-is-top-level ci)
-                (codegen-info-set-var! ci (car kv) #!void))
+              (define getter-exp
+                `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
+              (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp))
               `(define ,(get-variable-sym-with-pref! (car kv))
-                 (cdr (assoc ,(car kv) ,getters-sym)))))))))
+                       ,getter-exp)))))))
 
 
 (define (var-getter ci val)
-  `(with-exception-catcher
-     (lambda (e)
-       (if (unbound-global-exception? e)
-         (error 'unbound-variable ,(sexp->code val))
-         (raise e)))
-     (lambda ()
-       (let ((res ,(get-variable-symbol! val (codegen-info-path ci))))
-         (if (or (equal? res #!unbound) (eq? res ra::unbound))
-           (error 'unbound-variable ,(sexp->code val))
-           (if (eq? res ra::me-hole)
-             (error 'attempted-to-use-unbound-values-in-macro ,(sexp->code val))
-             res))))))
+  `(ra::ns-ref
+     (lambda () ,(get-variable-symbol! val (codegen-info-path ci)))
+     ,(sexp->code val)))
+
+
+(define last-evaled #!void)
+
+(define (eval-sc-sexp-to-tmpvar sexp)
+  (set! last-evaled sexp)
+  (let ((var (gensym!)))
+    (with-exception-catcher
+      (lambda (e)
+        (if (and (error-exception? e)
+                 (equal? (error-exception-message e)
+                         'attempted-to-use-unbound-values-in-macro))
+          (eval `(define ,var ra::me-hole))
+          (if (and (error-exception? e)
+                   (equal? (error-exception-message e)
+                           'unbound-variable))
+            (eval `(define ,var ra::unbound))
+            (raise e))))
+      (lambda () (eval `(define ,var ,sexp))))
+    var))
 
 
 (define (get-module-full-path path #!key ci)
@@ -772,6 +788,13 @@
                         (string-append pref varname)
                         (codegen-info-path ci))
                      ,(get-variable-symbol! varname full-path))))))
+          (for-each
+            (lambda (varname)
+              (codegen-info-set-var!
+                ci
+                (string-append pref varname)
+                (get-variable-symbol! varname full-path)))
+            (get-module-varnames full-path))
           (add-deferred-import-statement! run-import-statement)
           import-statement)
         (if (not (quoted-kv? sym-dest))
@@ -787,7 +810,7 @@
                 (for-each
                   (lambda (v)
                     (if (not (member v (get-module-varnames full-path)))
-                      (crash 'undefined-variable (sexp->code v))))
+                      (crash 'unbound-variable (sexp->code v))))
                   imported-tl)))
             `(begin
                (define ,dct-sym
@@ -799,10 +822,11 @@
                (define ,getters-sym (ra::assignment->ns (quote ,dest) ,dct-sym))
                ,@((map-over dest)
                   (lambda (kv)
-                    (if (codegen-info-is-top-level ci)
-                      (codegen-info-set-var! ci (car kv) #!void))
+                    (define getter-exp
+                      `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
+                    (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp))
                     `(define ,(get-variable-sym-with-pref! (car kv))
-                       (cdr (assoc ,(car kv) ,getters-sym))))))))))))
+                             ,getter-exp))))))))))
 
 
 
@@ -946,7 +970,7 @@
            (if (< (length (cdr sexp)) 2)
              (crash 'empty-fn-definition (sexp->code (car sexp))))
 
-           (let ()
+           (let ((new-ci (codegen-info-branch-out! new-ci)))
              (define head-and-body
                (if (and (list? (cadr sexp)) (not (quoted-structure? (cadr sexp))))
                  (cdr sexp)
@@ -988,29 +1012,46 @@
 
              (define (get-variable-sym-with-pref! varname)
                (get-variable-symbol! varname (codegen-info-path ci)))
+             
+             (define sink
+               (let ()
+                 (codegen-info-set-var! new-ci "#rec" 'ra::me-hole)
+                 (codegen-info-set-var! new-ci "#cn:rec" 'ra::me-hole)
+                 (for-each
+                   (lambda (v) (codegen-info-set-var! new-ci v 'ra::me-hole))
+                   ordered-args)))
 
-             `(let ()
-                (define wrapped-function #f)
-                (define (function ,@ordered-args-symbols)
-                  (define ,rec-sym
+             (define generated-code 
+               `(let ()
+                  (define wrapped-function #f)
+                  (define (function ,@ordered-args-symbols)
+                    (define ,rec-sym
+                      (ra::wrap-callable-in-meta
+                        function
+                        (ra::callable-meta-called-set
+                          (ra::init-callable-meta ,ns-inside-called (quote ,decl) ,name)
+                          #t)))
+                    (define ,cn-rec-sym wrapped-function)
+                    ,@(if (equal? name #!void)
+                        '()
+                        (let ((name-sym (get-variable-sym-with-pref! name))
+                              (cn-name-sym (get-variable-sym-with-pref!
+                                             (string-append "cn:" name))))
+                          (codegen-info-set-var! new-ci name 'ra::me-hole)
+                          (codegen-info-set-var! new-ci (string-append "cn:" name) 'ra::me-hole)
+                        `((define ,name-sym ,rec-sym)
+                          (define ,cn-name-sym ,cn-rec-sym))))
+                    (let () ,@(ns->scheme body new-ci)))
+                  (set! wrapped-function
                     (ra::wrap-callable-in-meta
-                      function
-                      (ra::callable-meta-called-set
-                        (ra::init-callable-meta ,ns-inside-called (quote ,decl) ,name)
-                        #t)))
-                  (define ,cn-rec-sym wrapped-function)
-                  ,@(if (equal? name #!void)
-                      '()
-                      `((define ,(get-variable-sym-with-pref! name) ,rec-sym)
-                        (define ,(get-variable-sym-with-pref! (string-append "cn:" name)) ,cn-rec-sym)))
-                  (let ()
-                    ,@(ns->scheme body (codegen-info-branch-out! new-ci))))
-                (set! wrapped-function
-                  (ra::wrap-callable-in-meta
-                     function
-                     (ra::init-callable-meta ,ns-with-default (quote ,decl) ,name)))
-                wrapped-function
-                )))
+                       function
+                       (ra::init-callable-meta ,ns-with-default (quote ,decl) ,name)))
+                  wrapped-function))
+
+             (add-procedure-ns! generated-code (codegen-info-ns ci))
+             generated-code
+             )
+           )
 
           (else
             (if (and (string? (car sexp))
