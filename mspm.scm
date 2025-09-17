@@ -1041,7 +1041,7 @@
                           (codegen-info-set-var! new-ci (string-append "cn:" name) 'ra::me-hole)
                           `((define ,name-sym ,rec-sym)
                             (define ,cn-name-sym ,cn-rec-sym))))
-                    (let () ,@(ns->scheme body new-ci)))
+                    (let () ,@(ns->scheme body (codegen-info-branch-out! new-ci))))
                   (set! wrapped-function
                     (ra::wrap-callable-in-meta
                        function
