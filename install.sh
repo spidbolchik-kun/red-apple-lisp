@@ -9,4 +9,6 @@ gsc -exe -prelude "(define library-path \"$RA_PATH\")" -o ra ra.scm
 [ -d ~/.local/bin ] || mkdir -p ~/.local/bin
 mv ra ~/.local/bin/
 cp runtime.scm "$RA_PATH"
+cp dt.scm "$RA_PATH"
+cp utils.scm "$RA_PATH"
 cp stdlib/builtins.ra "$RA_PATH"

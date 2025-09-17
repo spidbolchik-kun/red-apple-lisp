@@ -13,3 +13,5 @@ gsc -exe -prelude "(define library-path \"$RA_PATH\")" -o ra ra.scm
 rm -f ~/.local/bin/ra
 mv ra ~/.local/bin/
 ln -s "$(realpath runtime.scm)" "$(realpath stdlib/runtime.scm)"
+ln -s "$(realpath utils.scm)" "$(realpath stdlib/utils.scm)"
+ln -s "$(realpath dt.scm)" "$(realpath stdlib/dt.scm)"
