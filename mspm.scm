@@ -655,10 +655,9 @@
   (define (get-variable-sym-with-pref! varname)
     (get-variable-symbol! varname (codegen-info-path ci)))
 
-  (define scm-val (val->scheme rval ci))
-
   (if (not (quoted-structure? lval))
     (let ((ci (codegen-info-assignment-to-set ci lval)))
+      (define scm-val (val->scheme rval ci))
       (codegen-info-set-var! ci lval
         (if (procedure-sexp? rval)
           rval
@@ -667,6 +666,7 @@
     (let ((getters (destructuring-identifiers lval))
           (tmp-value-sym (gensym!))
           (getters-sym (gensym!)))
+      (define scm-val (val->scheme rval ci))
       `(begin
          (define ,tmp-value-sym ,scm-val)
          (define ,getters-sym (ra::assignment->ns (quote ,getters) ,tmp-value-sym))
@@ -1039,8 +1039,8 @@
                                              (string-append "cn:" name))))
                           (codegen-info-set-var! new-ci name 'ra::me-hole)
                           (codegen-info-set-var! new-ci (string-append "cn:" name) 'ra::me-hole)
-                        `((define ,name-sym ,rec-sym)
-                          (define ,cn-name-sym ,cn-rec-sym))))
+                          `((define ,name-sym ,rec-sym)
+                            (define ,cn-name-sym ,cn-rec-sym))))
                     (let () ,@(ns->scheme body new-ci)))
                   (set! wrapped-function
                     (ra::wrap-callable-in-meta
