@@ -106,7 +106,8 @@
     #\null
     #\return
     #\space
-    #\tab))
+    #\tab
+    #\,))
 
 (define (get-closing-char char)
   (define closing-chars
