@@ -622,7 +622,7 @@
               (if (= (length (car sexp)) 4)
                 `(,(list "assign" (cadr (car sexp)) (last (car sexp)))
                   ,(list "assign" (caddr (car sexp)) (cadr (car sexp)))
-                  ,(cdr sexp))
+                  ,@(cdr sexp))
                 sexp))
             sexp))
         (cons (assert-is-value (car sexp)) (cdr sexp))))))
