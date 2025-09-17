@@ -8,9 +8,6 @@
 (define-structure mspm-error path data)
 
 
-(define-structure ra::obj data hidden-meta visible-meta)
-
-
 (define EXN #!void)
 (define EXN2 #!void)
 

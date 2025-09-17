@@ -1094,10 +1094,10 @@
         path-to-scm-file
         (let ((scheme-code
                 (list `(include ,(get-module-full-path "runtime.scm"))
-                      (enumerate-variables-set-unbound)
-                      (get-scheme-code))))
+                      (append (enumerate-variables-set-unbound)
+                              (get-scheme-code)))))
           (lambda (port)
-            (for-each (lambda (sexp) (write sexp port)) scheme-code))))
+            (for-each (lambda (sexp) (pp sexp port)) scheme-code))))
       (let ((gambit-output
         (with-input-from-process
           `(path: "gsc" arguments: ("-exe" ,path-to-scm-file))

@@ -237,6 +237,7 @@ syn keyword schemeFunction delete-file
 syn keyword schemeFunction denominator
 syn keyword schemeFunction digit-value
 syn keyword schemeFunction display!
+syn keyword schemeFunction print!
 syn keyword schemeFunction dynamic-wind
 syn keyword schemeFunction emergency-exit
 syn keyword schemeFunction environment

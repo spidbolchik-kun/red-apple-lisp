@@ -246,6 +246,11 @@
   nil)
 
 
+(define (print! & values)
+  (map (fn (value) (ra::print value)) values)
+  nil)
+
+
 (define (compose left right & rest)
   (fold-left (fn (f0 f1) (fn (arg) (f1 (f0 arg))))
              [left right & rest]

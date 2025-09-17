@@ -178,3 +178,23 @@
 
 (define-structure ra::unbound-type)
 (define ra::unbound (make-ra::unbound-type))
+
+
+(define ra::list-marker (car '[]))
+(define ra::dict-marker (car '{}))
+
+
+(define (ra::print value)
+  (define (prepare value)
+    (if (list? value)
+      (cons ra::list-marker (map prepare value))
+      (if (ra::dictionary? value)
+        (cons ra::dict-marker
+          (apply append
+            (map (lambda (kv)
+                   (list (prepare (car kv)) '= (prepare (cdr kv))))
+                 (ra::dictionary->list value))))
+        (if (equal? #!void value)
+          'nil
+          value))))
+  (pp (prepare value)))

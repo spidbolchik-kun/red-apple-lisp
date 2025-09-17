@@ -1,6 +1,3 @@
-(import (srfi 69))
-
-
 (define (one-of? obj ls)
   (if (null? ls)
     #f
