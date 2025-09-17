@@ -847,6 +847,25 @@
                      (not (null? (car sexp))))
               (cond ((equal? "assign" (caar sexp))
                      (var-setter ci (cadar sexp) (caddar sexp)))
+
+                    ((equal? "define-macro" (caar sexp))
+                     (let ((def (cdar sexp)))
+                       (define sink0
+                         (if (< (length def) 3)
+                           (crash 'invalid-macro-definition-format (sexp->code def))))
+                       (define name (car def))
+                       (define arg (cadr def))
+                       (define body (cddr def))
+                       (define sink1
+                         (if (not (string? name))
+                           (crash 'macro-name-is-not-an-unquoted-symbol (sexp->code name))))
+                       (define fn-sexp
+                         (val->scheme `("fn" (,arg) ,@body)
+                                      (codegen-info-assignment-to-set ci name)))
+                       (declare-procedure-a-macro! fn-sexp)
+                       (codegen-info-set-var! ci name fn-sexp)
+                       `(define ,(get-variable-symbol! name (codegen-info-path ci)) ,fn-sexp)))
+
                     ((equal? "import-from" (caar sexp))
                      (import-module! (car sexp) ci))
                     ((equal? "assert" (caar sexp))

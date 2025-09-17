@@ -84,6 +84,7 @@ syn keyword schemeSyntax and
 syn keyword schemeSyntax or
 syn keyword schemeSyntax do
 syn keyword schemeSyntax define
+syn keyword schemeSyntax define-macro
 syn keyword schemeSyntax assign
 syn keyword schemeSyntax assert
 syn keyword schemeSyntax do
