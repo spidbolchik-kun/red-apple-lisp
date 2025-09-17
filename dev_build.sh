@@ -7,6 +7,8 @@ eval RA_PATH=$(cat library-path)
 gsc -prelude "(define library-path \"$RA_PATH\")" mspm.scm
 rm -f stdlib/mspm.o1
 rm -f stdlib/runtime.scm
+rm -f stdlib/utils.scm
+rm -f stdlib/dt.scm
 mv mspm.o1 stdlib
 gsc -exe -prelude "(define library-path \"$RA_PATH\")" -o ra ra.scm
 [ -d ~/.local/bin ] || mkdir -p ~/.local/bin
