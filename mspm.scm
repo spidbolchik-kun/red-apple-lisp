@@ -13,7 +13,7 @@
 
 
 (define primitive-forms
-  (append statements '("fn" "if" "let" "quote" "list-quote" "kv-quote" "and" "or")))
+  (append statements '("fn" "if" "let" "quote" "kv-quote" "and" "or")))
 
 
 (define forbidden-refs (append primitive-forms '("_" "&" "=")))
@@ -662,7 +662,11 @@
         (if (procedure-sexp? rval)
           rval
           (eval-sc-sexp-to-tmpvar (with-dynamic-ns (codegen-info-ns ci) scm-val))))
-      `(define ,(get-variable-sym-with-pref! lval) ,scm-val))
+      `(begin
+         (define ,(get-variable-sym-with-pref! lval) ,scm-val)
+         (define ,(get-variable-sym-with-pref!
+                    (ra::set-ns (ra::erase-ns lval) (codegen-info-ns ci)))
+                 ,(get-variable-sym-with-pref! lval))))
     (let ((getters (destructuring-identifiers lval))
           (tmp-value-sym (gensym!))
           (getters-sym (gensym!)))
@@ -675,8 +679,11 @@
               (define getter-exp
                 `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
               (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp))
-              `(define ,(get-variable-sym-with-pref! (car kv))
-                       ,getter-exp)))))))
+              `(begin
+                 (define ,(get-variable-sym-with-pref! (car kv)) ,getter-exp)
+                 (define ,(get-variable-sym-with-pref!
+                            (ra::set-ns (ra::erase-ns (car kv)) (codegen-info-ns ci)))
+                         ,(get-variable-sym-with-pref! (car kv))))))))))
 
 
 (define (var-getter ci val)
@@ -1035,7 +1042,7 @@
              (define sink
                (let ()
                  (codegen-info-set-var! new-ci "#rec" 'ra::me-hole)
-                 (codegen-info-set-var! new-ci "#cn:rec" 'ra::me-hole)
+                 (codegen-info-set-var! new-ci "#clear-args:rec" 'ra::me-hole)
                  (for-each
                    (lambda (v) (codegen-info-set-var! new-ci v 'ra::me-hole))
                    ordered-args)))
@@ -1050,14 +1057,17 @@
                         (ra::callable-meta-called-set
                           (ra::init-callable-meta ,ns-inside-called (quote ,decl) ,name)
                           #t)))
+                    (define ,(get-variable-symbol! "#rec" (codegen-info-path ci)) ,rec-sym)
                     (define ,cn-rec-sym wrapped-function)
+                    (define ,(get-variable-symbol! "#clear-args:rec" (codegen-info-path ci))
+                            ,cn-rec-sym)
                     ,@(if (equal? name #!void)
                         '()
                         (let ((name-sym (get-variable-sym-with-pref! name))
                               (cn-name-sym (get-variable-sym-with-pref!
-                                             (string-append "cn:" name))))
+                                             (string-append "clear-args:" name))))
                           (codegen-info-set-var! new-ci name 'ra::me-hole)
-                          (codegen-info-set-var! new-ci (string-append "cn:" name) 'ra::me-hole)
+                          (codegen-info-set-var! new-ci (string-append "clear-args:" name) 'ra::me-hole)
                           `((define ,name-sym ,rec-sym)
                             (define ,cn-name-sym ,cn-rec-sym))))
                     (let () ,@(ns->scheme body (codegen-info-branch-out! new-ci))))

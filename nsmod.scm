@@ -49,7 +49,7 @@
 
 
 (define rec-sym (get-variable-symbol! "#rec" #!void))
-(define cn-rec-sym (get-variable-symbol! "#cn:rec" #!void))
+(define cn-rec-sym (get-variable-symbol! "#clear-args:rec" #!void))
 
 
 (define ast-objects-lvl-up '())

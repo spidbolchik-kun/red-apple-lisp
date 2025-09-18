@@ -37,6 +37,14 @@
   (##car list))
 
 
+(define (first list)
+  (assert (list? list))
+  (##car list))
+
+
+(define (second list) (first (tail list)))
+
+
 (define (tail list)
   (assert (list? list) (not (empty? list)))
   (##cdr list))
@@ -122,10 +130,6 @@
     (+ 1 (length (tail list)))))
 
 
-(define (nil-or? predicate value)
-  (or (nil? value) (predicate value)))
-
-
 (define (list:< list)
   (assert (all? number? list))
   (all-sequential-values? (fn (x y) (##< x y)) list))
@@ -180,6 +184,10 @@
 (define (apply-if bool-or-predicate function to)
   predicate = (if (boolean? bool-or-predicate) (const bool-or-predicate) bool-or-predicate)
   (if (predicate to) (function to) to))
+
+
+(define (replace-if bool-or-predicate with value)
+  (apply-if bool-or-predicate (const with) value))
 
 
 (define (fold-left with-fn over #key with-initial-value)
@@ -281,6 +289,84 @@
   (if (or (empty? from) (<= n 0))
     from
     (take (- n 1) (tail from))))
+
+
+(define (drop n from)
+  (if (or (empty? from) (<= n 0))
+    from
+    (drop $n: (- 1) $from: tail)))
+
+
+(define (take-while condition from-list = [h & t] #key including-edge = #f)
+  (if (empty? from-list)
+    []
+    (if (not (condition h))
+      (apply-if including-edge (push h) [])
+      (push h (take-while from-list: t)))))
+
+
+(define (drop-while condition
+                    from-list = [h & t]
+                    #key including-edge = #f
+                    #default acc = [])
+  (if (or (empty? from-list) (not (condition h)))
+    [& acc & from-list]
+    (drop-while from-list: t acc: (if including-edge [h] []))))
+
+
+(define (pipe value & functions = [h])
+  (if (empty? functions)
+    value
+    (pipe (h value) $functions: tail)))
+
+
+(define (cont-push value to)
+  (fn accumulator
+      (to (push value accumulator))))
+
+
+(define (list:append lists)
+  ((fold-right over: lists with-final-value: [])
+   (fn ls0 = [h0 & t0] ls1
+       (if (empty? ls0)
+         ls1
+         (push h0 (#rec t0))))))
+
+
+(define (append left right & rest)
+  (list:append [left right & rest]))
+
+
+(define (one-of? list value)
+  (any? (== value) list))
+
+
+(define (kv-from-list list = [h] #key with-getters = [first second] #default acc = [])
+  [key-getter value-getter] = with-getters
+  (if (empty? list)
+    (make-ra::dictionary acc)
+    (kv-from-list $list: tail
+                  $acc: (push (##cons (key-getter h) (value-getter h))))))
+
+
+(define (modify-item item with of = [h & t] #default counter = 0)
+  (if (empty? of)
+    []
+    (if (== item counter)
+      (push (with h) t)
+      (push h (modify-item of: t $counter: (+ 1))))))
+
+
+(define (split list = [h], at #key keeping-markers = #f, once = #f #default cont = identity)
+  (assert (one-of? [#f 'in-left 'in-right] keeping-markers))
+  (if (empty? list)
+    [(cont [])]
+    (if (at h)
+      (push (cont (if (== keeping-markers 'in-left) [h] []))
+            (apply-if (== keeping-markers 'in-right)
+                      (modify-item 0 with: (push h))
+                      (split $list: tail cont: identity)))
+      (split $list: tail $cont: (cont-push h)))))
 
 
 (define (read-file-string! path)
