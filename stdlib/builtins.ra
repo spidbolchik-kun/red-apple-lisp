@@ -3,11 +3,10 @@
 (define (integer? value) (##integer? value))
 (define (string? value) (##string? value))
 (define (list? value) (##list? value))
-(define (kv? value) (ra::dictionary? (ra::data value)))
+(define (kv? value) (ra::dictionary? value))
 (define (not value) (##not value))
 (define (nil? value) (##equal? value (##void)))
 (define nil (##void))
-
 
 (define (const value) (fn (& args #key & rest) value))
 (define (identity value) value)
@@ -349,12 +348,26 @@
                   $acc: (push (##cons (key-getter h) (value-getter h))))))
 
 
-(define (modify-item item with of = [h & t] #default counter = 0)
-  (if (empty? of)
-    []
-    (if (== item counter)
-      (push (with h) t)
-      (push h (modify-item of: t $counter: (+ 1))))))
+(define (modify-item item with of)
+  (assert (or (kv? of) (list? of)))
+
+  (define (modify-list-item list = [h & t] #default counter = 0)
+    (if (empty? list)
+      []
+      (if (== item counter)
+        (push (with h) t)
+        (push h (modify-list-item t $counter: (+ 1))))))
+
+  (define (modify-kv-item alist = [h & t])
+    (if (empty? alist)
+      []
+      (if (== item (##car h))
+        (push (##cons (##car h) (with (##cdr h))) t)
+        (push h (modify-kv-item t)))))
+
+  (if (list? of)
+    (modify-list-item of)
+    (make-ra::dictionary (modify-kv-item (ra::dictionary-alist of)))))
 
 
 (define (split list = [h], at #key keeping-markers = #f, once = #f #default cont = identity)
@@ -365,7 +378,7 @@
       (push (cont (if (== keeping-markers 'in-left) [h] []))
             (apply-if (== keeping-markers 'in-right)
                       (modify-item 0 with: (push h))
-                      (split $list: tail cont: identity)))
+                      (if once [list] (split $list: tail cont: identity))))
       (split $list: tail $cont: (cont-push h)))))
 
 
