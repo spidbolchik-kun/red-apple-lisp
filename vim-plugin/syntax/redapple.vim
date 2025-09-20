@@ -169,6 +169,9 @@ syn keyword schemeFunction one-of?
 syn keyword schemeFunction kv-from-list
 syn keyword schemeFunction modify-item
 syn keyword schemeFunction split
+syn keyword schemeFunction modify-item*
+syn keyword schemeFunction replace-item
+syn keyword schemeFunction replace-item*
 
 syn keyword schemeFunction read-file-string!
 

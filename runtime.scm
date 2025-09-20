@@ -337,7 +337,7 @@
       (take dropped (max 0 (- end start))))))
 
 
-(define (ra::ns-ref ref-fn code)
+(define (ra::ns-ref* ref-fn code)
   (with-exception-catcher
     (lambda (e)
       (if (unbound-global-exception? e)
@@ -350,6 +350,21 @@
           (if (eq? res ra::me-hole)
             (error 'attempted-to-use-unbound-values-in-macro code)
             res))))))
+
+
+(define (ra::ns-ref ref-fn-or-ls code)
+  (let loop ((ref-ls (if (list? ref-fn-or-ls)
+                       ref-fn-or-ls
+                       (list ref-fn-or-ls))))
+    (with-exception-catcher
+      (lambda (e)
+        (if (and (error-exception? e)
+                 (equal? (error-exception-message e) 'unbound-variable))
+          (if (= 1 (length ref-ls))
+            (raise e)
+            (loop (cdr ref-ls)))
+          (raise e)))
+      (lambda () (ra::ns-ref* (car ref-ls) code)))))
 
 
 (define-structure ra::ns current parent prefix)

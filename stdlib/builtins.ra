@@ -352,6 +352,7 @@
   (assert (or (kv? of) (list? of)))
 
   (define (modify-list-item list = [h & t] #default counter = 0)
+    (assert (integer? item))
     (if (empty? list)
       []
       (if (== item counter)
@@ -370,7 +371,7 @@
     (make-ra::dictionary (modify-kv-item (ra::dictionary-alist of)))))
 
 
-(define (split list = [h], at #key keeping-markers = #f, once = #f #default cont = identity)
+(define (split list = [h & t], at #key keeping-markers = #f, once = #f #default cont = identity)
   (assert (one-of? [#f 'in-left 'in-right] keeping-markers))
   (if (empty? list)
     [(cont [])]
@@ -378,8 +379,20 @@
       (push (cont (if (== keeping-markers 'in-left) [h] []))
             (apply-if (== keeping-markers 'in-right)
                       (modify-item 0 with: (push h))
-                      (if once [list] (split $list: tail cont: identity))))
-      (split $list: tail $cont: (cont-push h)))))
+                      (if once [list] (split t cont: identity))))
+      (split t $cont: (cont-push h)))))
+
+
+(define (modify-item* item-path with of)
+  ((fold-right modify-item item-path with) of))
+
+
+(define (replace-item item with of)
+  (modify-item item (const with) of))
+
+
+(define (replace-item* item-path with of)
+  (modify-item* item-path (const with) of))
 
 
 (define (read-file-string! path)

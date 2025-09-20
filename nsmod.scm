@@ -32,24 +32,24 @@
 
 
 (define (get-variable-symbol! name mod-path)
-  (let* ((pair (list name mod-path (table-ref sym-ns-map name #f)))
+  (define ns
+    (let ((maybe-ns (table-ref sym-ns-map name #f)))
+      (if (not maybe-ns)
+        (get-module-ns! mod-path)
+        maybe-ns)))
+  (let* ((pair (list name (me-ns-num ns)))
          (num (table-ref *sym->num* pair #f))
          (old-counter *variable-counter*))
-    (let ()
-      (define vsym
-        (add-v-prefix
-          (if num num
-            (begin
-              (table-set! *sym->num* pair *variable-counter*)
-              (set! *variable-counter* (+ 1 *variable-counter*))
-              old-counter))))
-      (if (not num)
-        (eval `(define ,vsym ra::unbound)))
-      vsym)))
-
-
-(define rec-sym (get-variable-symbol! "#rec" #!void))
-(define cn-rec-sym (get-variable-symbol! "#clear-args:rec" #!void))
+    (define vsym
+      (add-v-prefix
+        (if num num
+          (begin
+            (table-set! *sym->num* pair *variable-counter*)
+            (set! *variable-counter* (+ 1 *variable-counter*))
+            old-counter))))
+    (if (not num)
+      (eval `(define ,vsym ra::unbound)))
+    vsym))
 
 
 (define ast-objects-lvl-up '())

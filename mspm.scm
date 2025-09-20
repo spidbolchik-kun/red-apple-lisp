@@ -1047,6 +1047,9 @@
                    (lambda (v) (codegen-info-set-var! new-ci v 'ra::me-hole))
                    ordered-args)))
 
+             (define rec-sym (get-variable-symbol! "#rec" (codegen-info-path ci)))
+             (define cn-rec-sym (get-variable-symbol! "#clear-args:rec" (codegen-info-path ci)))
+
              (define generated-code 
                `(let ()
                   (define wrapped-function #f)
@@ -1057,10 +1060,7 @@
                         (ra::callable-meta-called-set
                           (ra::init-callable-meta ,ns-inside-called (quote ,decl) ,name)
                           #t)))
-                    (define ,(get-variable-symbol! "#rec" (codegen-info-path ci)) ,rec-sym)
                     (define ,cn-rec-sym wrapped-function)
-                    (define ,(get-variable-symbol! "#clear-args:rec" (codegen-info-path ci))
-                            ,cn-rec-sym)
                     ,@(if (equal? name #!void)
                         '()
                         (let ((name-sym (get-variable-sym-with-pref! name))
