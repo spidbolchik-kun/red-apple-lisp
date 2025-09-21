@@ -52,6 +52,23 @@
     vsym))
 
 
+(define (get-variable-symbols-chain! name mod-path)
+  (define ns
+    (let ((maybe-ns (table-ref sym-ns-map name #f)))
+      (if (not maybe-ns)
+        (get-module-ns! mod-path)
+        maybe-ns)))
+  (let loop ((ns ns))
+    (if (not ns)
+      '()
+      (cons (get-variable-symbol!
+              (ra::set-ns (ra::erase-ns name) ns)
+              mod-path)
+            (loop (if (string? (me-ns-parent-or-modpath ns))
+                    #f
+                    (me-ns-parent-or-modpath ns)))))))
+
+
 (define ast-objects-lvl-up '())
 
 
@@ -115,8 +132,11 @@
 
 
 (define (syms-equal? x y)
-  (equal? (cons x (table-ref sym-ns-map x #f))
-          (cons y (table-ref sym-ns-map y #f))))
+  (define (ns-num-or-false sym)
+    (let ((res (table-ref sym-ns-map sym #f)))
+      (if (not res) res (me-ns-num res))))
+  (equal? (cons x (ns-num-or-false x))
+          (cons y (ns-num-or-false y))))
 
 
 (define (get-module-ns! normalized-path)
@@ -146,6 +166,23 @@
       (lambda ()
         (table-ref dict sym)
         (error 'duplicate-definitions sym)))))
+
+
+(define (me-ns-ref ns sym . def)
+  (define (inner ns)
+    (if (not ns)
+      (if (null? def)
+        (error 'unbound-variable sym)
+        (car def))
+      (with-exception-catcher
+        (lambda (e)
+          (if (unbound-key-exception? e)
+            (inner (if (string? (me-ns-parent-or-modpath ns))
+                     #f
+                     (me-ns-parent-or-modpath ns)))
+            (raise e)))
+        (lambda () (table-ref (me-ns-dict ns) sym)))))
+  (inner ns))
 
 
 (define (get-module-varnames full-path)

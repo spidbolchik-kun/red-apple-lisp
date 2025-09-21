@@ -562,7 +562,9 @@
   (assert-not-forbidden-ref sexp)
   (if (null? sexp)
     (crash 'empty-call (sexp->code sexp))
-    (if (and (list? sexp) (member (car sexp) statements))
+    (if (and (list? sexp)
+             (member (car sexp) statements)
+             (not (equal? (car sexp) "do")))
       (crash 'statement-instead-of-value (sexp->code sexp))
       sexp)))
 
@@ -687,8 +689,9 @@
 
 
 (define (var-getter ci val)
+  (define syms (get-variable-symbols-chain! val (codegen-info-path ci)))
   `(ra::ns-ref
-     (lambda () ,(get-variable-symbol! val (codegen-info-path ci)))
+     (list ,@(map (lambda (s) `(lambda () ,s)) syms))
      ,(sexp->code val)))
 
 
@@ -974,6 +977,13 @@
         sexp
         (cond
           ((equal? (car sexp) "quote") (cadr sexp))
+
+          ;((macro? (me-ns-ref (codegen-info-ns ci) (caar sexp) #f))
+          ; (display "FOUND A MACRO ")(display (caar sexp))(newline)
+          ; (exit))
+
+          ((equal? (car sexp) "do")
+           (val->scheme `("let" ,@(cdr sexp)) ci))
 
           ((equal? (car sexp) "if")
            (if (< (length (cdr sexp)) 2)

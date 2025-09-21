@@ -337,34 +337,20 @@
       (take dropped (max 0 (- end start))))))
 
 
-(define (ra::ns-ref* ref-fn code)
-  (with-exception-catcher
-    (lambda (e)
-      (if (unbound-global-exception? e)
-        (error 'unbound-variable code)
-        (raise e)))
-    (lambda ()
-      (let ((res (ref-fn)))
-        (if (or (equal? res #!unbound) (eq? res ra::unbound))
-          (error 'unbound-variable code)
-          (if (eq? res ra::me-hole)
-            (error 'attempted-to-use-unbound-values-in-macro code)
-            res))))))
-
-
 (define (ra::ns-ref ref-fn-or-ls code)
   (let loop ((ref-ls (if (list? ref-fn-or-ls)
                        ref-fn-or-ls
                        (list ref-fn-or-ls))))
-    (with-exception-catcher
-      (lambda (e)
-        (if (and (error-exception? e)
-                 (equal? (error-exception-message e) 'unbound-variable))
-          (if (= 1 (length ref-ls))
-            (raise e)
+    (let ((res ((car ref-ls))))
+      (if (equal? res #!unbound)
+        (error 'unbound-variable code)
+        (if (eq? res ra::unbound)
+          (if (= (length ref-ls) 1)
+            (error 'unbound-variable code)
             (loop (cdr ref-ls)))
-          (raise e)))
-      (lambda () (ra::ns-ref* (car ref-ls) code)))))
+          (if (eq? res ra::me-hole)
+            (error 'attempted-to-use-unbound-values-in-macro code)
+            res))))))
 
 
 (define-structure ra::ns current parent prefix)
@@ -378,13 +364,6 @@
   (define cont ra::scheme-code-cont)
   (set! ra::scheme-code-cont
     (lambda (acc) (cont (cons statement acc)))))
-
-
-(define (ra::add-macro-prefix! macro pref)
-  (if (not (procedure? (ra::erase-all-labels macro)))
-    (error 'macro-should-be-a-procedure macro)
-    (let ((new-mp (cons (cons macro pref) ra::macro-prefixes)))
-      (set! ra::macro-prefixes new-mp))))
 
 
 (define (ra::ns-set-var ns sym val #!key mut)
