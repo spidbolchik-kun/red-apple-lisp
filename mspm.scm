@@ -660,14 +660,17 @@
   (if (not (quoted-structure? lval))
     (let ((ci (codegen-info-assignment-to-set ci lval)))
       (define scm-val (val->scheme rval ci))
-      (codegen-info-set-var! ci lval
+      (define nspref-lval (ra::set-ns (ra::erase-ns lval) (codegen-info-ns ci)))
+      (define ci-rval
         (if (procedure-sexp? rval)
           rval
           (eval-sc-sexp-to-tmpvar (with-dynamic-ns (codegen-info-ns ci) scm-val))))
+      (codegen-info-set-var! ci lval ci-rval)
+      (if (not (codegen-info-is-top-level ci))
+        (codegen-info-set-var! ci nspref-lval ci-rval))
       `(begin
          (define ,(get-variable-sym-with-pref! lval) ,scm-val)
-         (define ,(get-variable-sym-with-pref!
-                    (ra::set-ns (ra::erase-ns lval) (codegen-info-ns ci)))
+         (define ,(get-variable-sym-with-pref! nspref-lval)
                  ,(get-variable-sym-with-pref! lval))))
     (let ((getters (destructuring-identifiers lval))
           (tmp-value-sym (gensym!))
@@ -680,11 +683,14 @@
             (lambda (kv)
               (define getter-exp
                 `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
-              (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp))
+              (define nspref-lval (ra::set-ns (ra::erase-ns (car kv)) (codegen-info-ns ci)))
+              (define ci-rval (eval-sc-sexp-to-tmpvar getter-exp))
+              (codegen-info-set-var! ci (car kv) ci-rval)
+              (if (not (codegen-info-is-top-level ci))
+                (codegen-info-set-var! ci nspref-lval ci-rval))
               `(begin
                  (define ,(get-variable-sym-with-pref! (car kv)) ,getter-exp)
-                 (define ,(get-variable-sym-with-pref!
-                            (ra::set-ns (ra::erase-ns (car kv)) (codegen-info-ns ci)))
+                 (define ,(get-variable-sym-with-pref! nspref-lval)
                          ,(get-variable-sym-with-pref! (car kv))))))))))
 
 
