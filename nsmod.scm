@@ -246,4 +246,11 @@
   (if (table-ref procedure-ns-table sexp-code #f) #t #f))
 
 (define (procedure-with-dynamic-ns proc-sexp)
-  (with-dynamic-ns (get-procedure-ns proc-sexp) proc-sexp))
+  (define proc-ns (get-procedure-ns proc-sexp))
+  (define new-dict (make-table test: syms-equal?))
+
+  (for-each (lambda (kv) (table-set! new-dict (car kv) (cdr kv)))
+    (filter (lambda (kv) (not (equal? (cdr kv) proc-sexp)))
+            (table->list (make-table test: syms-equal?))))
+
+  (with-dynamic-ns (me-ns-dict-set proc-ns new-dict) proc-sexp))
