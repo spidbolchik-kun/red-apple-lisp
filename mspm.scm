@@ -703,6 +703,7 @@
 
 (define last-evaled #!void)
 
+
 (define (eval-sc-sexp-to-tmpvar sexp)
   (set! last-evaled sexp)
   (let ((var (gensym!)))
@@ -864,6 +865,18 @@
               (cond ((equal? "assign" (caar sexp))
                      (var-setter ci (cadar sexp) (caddar sexp)))
 
+                    ((macro? (me-ns-ref (codegen-info-ns ci) (caar sexp) #f))
+                     (return
+                       (ns->scheme
+                         (cons
+                           (expand-macro
+                             (sexp->code (car sexp))
+                             (eval (eval-sc-sexp-to-tmpvar
+                               (procedure-with-dynamic-ns (me-ns-ref (codegen-info-ns ci) (caar sexp)))))
+                             (cdar sexp))
+                           (cdr sexp))
+                         ci)))
+
                     ((equal? "define-macro" (caar sexp))
                      (let ((def (cdar sexp)))
                        (define sink0
@@ -875,9 +888,11 @@
                        (define sink1
                          (if (not (string? name))
                            (crash 'macro-name-is-not-an-unquoted-symbol (sexp->code name))))
+
                        (define fn-sexp
                          (val->scheme `("fn" (,arg) ,@body)
                                       (codegen-info-assignment-to-set ci name)))
+                       (add-procedure-ns! fn-sexp (codegen-info-ns ci))
                        (declare-procedure-a-macro! fn-sexp)
                        (codegen-info-set-var! ci name fn-sexp)
                        `(define ,(get-variable-symbol! name (codegen-info-path ci)) ,fn-sexp)))
@@ -964,6 +979,10 @@
         (else (crash 'not-a-quoted-structure (sexp->code sexp)))))
 
 
+(define (expand-macro code proc sexp)
+  (ra::call code proc (list (list 'positional sexp))))
+
+
 (define (val->scheme sexp ci)
   (define new-ci (codegen-info-assignment-to-set ci #f))
   (define (continue ls)
@@ -984,9 +1003,14 @@
         (cond
           ((equal? (car sexp) "quote") (cadr sexp))
 
-          ;((macro? (me-ns-ref (codegen-info-ns ci) (caar sexp) #f))
-          ; (display "FOUND A MACRO ")(display (caar sexp))(newline)
-          ; (exit))
+          ((macro? (me-ns-ref (codegen-info-ns ci) (car sexp) #f))
+           (val->scheme
+             (expand-macro
+               (sexp->code sexp)
+               (eval (eval-sc-sexp-to-tmpvar
+                 (procedure-with-dynamic-ns (me-ns-ref (codegen-info-ns ci) (car sexp)))))
+               (cdr sexp))
+             ci))
 
           ((equal? (car sexp) "do")
            (val->scheme `("let" ,@(cdr sexp)) ci))

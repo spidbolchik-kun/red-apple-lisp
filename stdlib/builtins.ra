@@ -19,6 +19,11 @@
     (ra::dictionary-empty? value)))
 
 
+(define (kv-set key to in)
+  (assert (kv? in))
+  (ra::dictionary-set in key to))
+
+
 (define (push value to)
   (assert (list? to))
   (##cons value to))
@@ -393,6 +398,14 @@
 
 (define (replace-item* item-path with of)
   (modify-item* item-path (const with) of))
+
+
+(define (partition list = [h & t] #key by = identity #default acc = {})
+  (if (empty? list)
+    acc
+    (let key = (by h)
+         new-acc = (apply-if (nil? (acc key)) (kv-set key []) acc)
+      (partition t acc: (modify-item key (push-back h) new-acc)))))
 
 
 (define (read-file-string! path)

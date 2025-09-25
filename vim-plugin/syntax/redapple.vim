@@ -172,6 +172,7 @@ syn keyword schemeFunction split
 syn keyword schemeFunction modify-item*
 syn keyword schemeFunction replace-item
 syn keyword schemeFunction replace-item*
+syn keyword schemeFunction partition
 
 syn keyword schemeFunction read-file-string!
 

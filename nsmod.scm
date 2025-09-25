@@ -251,6 +251,6 @@
 
   (for-each (lambda (kv) (table-set! new-dict (car kv) (cdr kv)))
     (filter (lambda (kv) (not (equal? (cdr kv) proc-sexp)))
-            (table->list (make-table test: syms-equal?))))
+            (table->list (me-ns-dict proc-ns))))
 
   (with-dynamic-ns (me-ns-dict-set proc-ns new-dict) proc-sexp))
