@@ -1,4 +1,8 @@
 (define (boolean? value) (##boolean? value))
+
+(define (procedure? value)
+  (or (ra::procedure? value) (##procedure? value)))
+
 (define (number? value) (##number? value))
 (define (integer? value) (##integer? value))
 (define (string? value) (##string? value))
@@ -406,6 +410,11 @@
     (let key = (by h)
          new-acc = (apply-if (nil? (acc key)) (kv-set key []) acc)
       (partition t acc: (modify-item key (push-back h) new-acc)))))
+
+
+(define (sort list #key by = identity)
+  (assert (procedure? by) (list? list))
+  (##list-sort (ra::procedure-code (fn x y (< (by x) (by y)))) list))
 
 
 (define (read-file-string! path)

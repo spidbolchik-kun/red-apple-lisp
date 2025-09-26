@@ -892,7 +892,6 @@
                        (define fn-sexp
                          (val->scheme `("fn" (,arg) ,@body)
                                       (codegen-info-assignment-to-set ci name)))
-                       (add-procedure-ns! fn-sexp (codegen-info-ns ci))
                        (declare-procedure-a-macro! fn-sexp)
                        (codegen-info-set-var! ci name fn-sexp)
                        `(define ,(get-variable-symbol! name (codegen-info-path ci)) ,fn-sexp)))

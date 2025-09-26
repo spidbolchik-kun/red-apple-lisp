@@ -103,6 +103,7 @@ syn keyword schemeSyntax #rec
 syn keyword schemeSyntax #clear-args:rec
 
 syn keyword schemeFunction boolean?
+syn keyword schemeFunction procedure?
 syn keyword schemeFunction number?
 syn keyword schemeFunction integer?
 syn keyword schemeFunction string?
@@ -113,6 +114,7 @@ syn keyword schemeFunction nil?
 syn keyword schemeFunction const
 syn keyword schemeFunction identity
 syn keyword schemeFunction empty?
+syn keyword schemeFunction kv-set
 syn keyword schemeFunction push
 syn keyword schemeFunction push-back
 syn keyword schemeFunction head
@@ -120,6 +122,7 @@ syn keyword schemeFunction first
 syn keyword schemeFunction second
 syn keyword schemeFunction tail
 syn keyword schemeFunction last
+syn keyword schemeFunction but-last
 syn keyword schemeFunction all?
 syn keyword schemeFunction any?
 syn keyword schemeFunction fold-right
@@ -173,6 +176,7 @@ syn keyword schemeFunction modify-item*
 syn keyword schemeFunction replace-item
 syn keyword schemeFunction replace-item*
 syn keyword schemeFunction partition
+syn keyword schemeFunction sort
 
 syn keyword schemeFunction read-file-string!
 
