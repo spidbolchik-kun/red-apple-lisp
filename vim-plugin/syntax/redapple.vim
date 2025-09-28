@@ -125,6 +125,7 @@ syn keyword schemeFunction last
 syn keyword schemeFunction but-last
 syn keyword schemeFunction all?
 syn keyword schemeFunction any?
+syn keyword schemeFunction all-are-either?
 syn keyword schemeFunction fold-right
 syn keyword schemeFunction all-sequential-values?
 syn keyword schemeFunction list:==

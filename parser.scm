@@ -114,17 +114,18 @@
     '((#\( . #\))
       (#\{ . #\})
       (#\[ . #\])
-      (#\" . #\")))
+      (#\" . #\")
+      ("`(" . #\))))
   (let ((result (assoc char closing-chars)))
     (and result (cdr result))))
 
 (define separated-chars
-  '(#\( #\) #\[ #\] #\{ #\} #\" #\'))
+  '(#\( #\) #\[ #\] #\{ #\} #\" #\' #\`))
 
 (define types
   '(top-level
     unquoted-symbol
-    #\space #\( #\{ #\[ #\" #\' #\\ #\x))
+    #\space #\( #\{ #\[ #\" #\' #\\ #\x "`("))
 
 (define (hex-char-list-to-unicode-char char-list)
   (define lookup-table
@@ -183,7 +184,7 @@
 (define (parse str path)
   (define (run-parse type cursor-start #!key (kont identity) (wrap-in-ast-obj #t))
     (define cursor
-      (if (one-of? type '(top-level #\( #\[ #\{))
+      (if (one-of? type '(top-level #\( #\[ #\{ "`("))
         (cdr (run-parse #\space cursor-start))
         cursor-start))
     (define char (cursor-get-char cursor))
@@ -197,7 +198,11 @@
             type
             (car scan-result)
             (init-range
-              (if (one-of? type '(#\( #\[ #\{ #\")) (cursor-prev cursor) cursor)
+              (if (one-of? type '(#\( #\[ #\{ #\"))
+                (cursor-prev cursor)
+                (if (equal? type "`(")
+                  (cursor-prev (cursor-prev cursor))
+                  cursor))
               (cdr scan-result))
             path))))
 
@@ -212,11 +217,11 @@
           (kont '()))))
 
     (if (equal? char #f)
-      (if (one-of? type '(#\( #\{ #\[ #\" #\x))
+      (if (one-of? type '(#\( #\{ #\[ #\" #\x "`("))
         (make-parsing-error (list 'unterminated type) #f)
         (cons (terminate) cursor))
       (if (and
-            (one-of? type '(top-level #\( #\[ #\{))
+            (one-of? type '(top-level #\( #\[ #\{ "`("))
             (one-of? char
               (set-diff '(#\) #\} #\]) (list (get-closing-char type)))))
         (make-parsing-error (list 'bad-terminator type) cursor)
@@ -266,16 +271,22 @@
 
               (else
                 (let ((scan
-                  (cond ((one-of? type '(top-level #\( #\[ #\{))
+                  (cond ((one-of? type '(top-level #\( #\[ #\{ "`("))
                          (let ((new-type
-                                 (if (one-of? char '(#\( #\[ #\{ #\" #\' #\;))
+                                 (if (one-of? char '(#\( #\[ #\{ #\` #\" #\' #\;))
                                    char
                                    'unquoted-symbol)))
-                           (run-parse
-                             new-type
-                             (if (equal? new-type 'unquoted-symbol)
-                               cursor
-                               (cursor-step cursor)))))
+                           (if (equal? new-type #\`)
+                             (if (equal? (cursor-get-char (cursor-step cursor)) #\()
+                               (run-parse "`(" (cursor-step (cursor-step cursor)))
+                               (make-parsing-error
+                                 (list 'expected-parenthesis-after-backquote type)
+                                 (cursor-step cursor)))
+                             (run-parse
+                               new-type
+                               (if (equal? new-type 'unquoted-symbol)
+                                 cursor
+                                 (cursor-step cursor))))))
                         ((and (equal? type #\") (equal? char #\\))
                          (run-parse #\\ (cursor-step cursor)))
                         (else (cons char (cursor-step cursor))))))

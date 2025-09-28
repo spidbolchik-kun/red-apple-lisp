@@ -4,7 +4,7 @@
 
 (define (main args #!key to-compile)
   (if (null? args)
-    (ra::display-in-red "specify file to run\n")
+    (ra::display-in-red (string-append "specify file to " (if to-compile "compile\n" "run\n")))
     (if (equal? (car args) "--compile")
       (main (cdr args) to-compile: #t)
       (cond

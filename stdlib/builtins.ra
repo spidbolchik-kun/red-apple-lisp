@@ -84,6 +84,15 @@
     (or (predicate head) (any? of: tail))))
 
 
+(define (all-are-either? predicates = [h & t] of)
+  (assert (list? predicates) (list? of))
+  (if (empty? of)
+    #t
+    (if (empty? predicates)
+      #f
+      (or (all? h of) (all-are-either? t of)))))
+
+
 (define (fold-right with-fn over #key with-final-value)
   (define (fold-right with-fn over with-final-value)
     (if (empty? over)

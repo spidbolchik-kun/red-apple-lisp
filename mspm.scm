@@ -37,11 +37,12 @@
 (define (sexp->code sexp)
   (define res (get-code-slice sexp))
   (if (not res)
-    #!void
+    `(list "unknown" (quote (-1 -1 -1 -1)) ,(object->string sexp) (quote ()))
     `(list ,(ast-obj-path res)
            (quote ,(code-ast-obj-lines-cols res))
            ,(code-ast-obj->string res)
            (quote ,(sexp-refs sexp)))))
+
 
 
 ;(define library-path (car (read-file-string-list "library-path")))
@@ -69,7 +70,10 @@
           (make-mspm-error
             full-path
             (list (parsing-error-type result) (parsing-error-marked result))))
-        (make-module full-path result)))))
+        (if (and (pair? result) (null? (car result)))
+          ;; Empty file - create a module with empty AST
+          (make-module full-path (make-ast-obj 'top-level '() #f full-path))
+          (make-module full-path result))))))
 
 
 (define (assert-not-forbidden-ref sexp)
@@ -88,17 +92,23 @@
   (if (ast-obj? data) data (make-ast-obj type data #f)))
 
 
-(define (ast-obj->sexp obj #!key parent)
+(define (ast-obj->sexp obj #!key parent backquoted)
   (define wrap
     (fn-if
       (not (one-of? (ast-obj-type obj) '(unquoted-symbol #\()))
       (wrap-into-list
         (if (equal? (ast-obj-type obj) #\{) "kv-quote" "quote"))))
+
+  (define bq (or backquoted (equal? (ast-obj-type obj) "`(")))
+
   (let ((wrapped
     (wrap
       (let ((sexp
         (if (list? (ast-obj-data obj))
-          (map (lambda (child) (ast-obj->sexp child parent: obj))
+          (map (lambda (child)
+                 (ast-obj->sexp child
+                    parent: obj
+                    backquoted: (equal? (ast-obj-type obj) "`(")))
                (filter (lambda (child) (not (equal? (ast-obj-type child) #\;)))
                        (ast-obj-data obj)))
           (ast-obj-data obj))
@@ -108,32 +118,6 @@
         sexp))))
     (add-sexp! wrapped obj)
     wrapped))
-
-
-(define (ast-obj->sexp2 obj)
-  (define (wrap inner)
-    (ra::set-label
-      (if (not (one-of? (ast-obj-type obj) '(unquoted-symbol #\()))
-        (ra::set-label inner "quotation"
-          (if (equal? (ast-obj-type obj) #\{) "kv-quote" "quote")))
-      "ast-obj"
-      obj))
-
-  (wrap
-    (if (not (list? (ast-obj-data obj)))
-      (ast-obj-data obj)
-      (if (null? (ast-obj-data obj))
-        '()
-        (let ()
-          (define head (car (ast-obj-data obj)))
-          (define next-ast-obj
-            (ast-obj-range-set
-              (ast-obj-data-set obj (cdr (ast-obj-data obj)))
-              (range-start-set (ast-obj-range obj)
-                (range-end (ast-obj-range head)))))
-          (if (equal? (ast-obj-type head) #\;)
-            (ast-obj->sexp2 next-ast-obj)
-            (cons (ast-obj->sexp2 head) (ast-obj->sexp2 next-ast-obj))))))))
 
 
 (define (prefixize-head-=-chain sexp-list #!key wrap-standalone)
@@ -298,7 +282,9 @@
                              (find-one (equal-to "&") (cadr (last =-chain))
                                on-failure: #f)))
                        (if marker
-                         (crash 'unexpected-rest-marker (sexp->code marker))
+                         (if (and (not (null? rest)) (not (null? (cdr rest))))
+                           (crash 'multiple-rest-patterns (sexp->code marker))
+                           #f)
                          #f))))
               (else
                 (let* ((next-level
@@ -810,7 +796,7 @@
               (codegen-info-set-var!
                 ci
                 (string-append pref varname)
-                (get-variable-symbol! varname full-path)))
+                (me-ns-ref (get-module-ns! full-path) varname)))
             (get-module-varnames full-path))
           (add-deferred-import-statement! run-import-statement)
           import-statement)
@@ -841,10 +827,10 @@
                   (lambda (kv)
                     (define getter-exp
                       `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
+                    (pp getter-exp)
                     (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp))
                     `(define ,(get-variable-sym-with-pref! (car kv))
                              ,getter-exp))))))))))
-
 
 
 (define (ns->scheme sexp ci)
@@ -893,8 +879,7 @@
                          (val->scheme `("fn" (,arg) ,@body)
                                       (codegen-info-assignment-to-set ci name)))
                        (declare-procedure-a-macro! fn-sexp)
-                       (codegen-info-set-var! ci name fn-sexp)
-                       `(define ,(get-variable-symbol! name (codegen-info-path ci)) ,fn-sexp)))
+                       (codegen-info-set-var! ci name fn-sexp)))
 
                     ((equal? "import-from" (caar sexp))
                      (import-module! (car sexp) ci))
