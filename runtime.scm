@@ -45,17 +45,18 @@
       (display code (current-error-port))
       (display "\n\n" (current-error-port)))
     ;; Normal case - display code with line numbers
-    (let ((line-numbers
-            ((map-over (iota (+ (- line-end line-start) 1) line-start))
-             (lambda (n)
-               (define str (number->string n))
-               (string-append
-                 (make-string
-                   (- (string-length (number->string line-end))
-                      (string-length str))
-                   #\space)
-                 str
-                 " ")))))
+    (let ()
+      (define line-numbers
+        ((map-over (iota (+ (- line-end line-start) 1) line-start))
+         (lambda (n)
+           (define str (number->string n))
+           (string-append
+             (make-string
+               (- (string-length (number->string line-end))
+                  (string-length str))
+               #\space)
+             str
+             " "))))
 
       (define (enumerate-lines char-list numbers)
         (if (null? numbers)
@@ -119,130 +120,125 @@
     (if (not (null? (cdr params)))
       (display-param (car params))))
   
-  (if (error-exception? e)
-    (begin
-      (ra::display-error-head (error-exception-message e))
+  (ra::display-error-head (error-exception-message e))
 
-      (case (error-exception-message e)
-        ((contract-violation)
-         (let ((params (error-exception-parameters e)))
-           (define callee-params (last params))
-           (define callee-module-path (car callee-params))
-           (define callee-code-range (cadr callee-params))
-           (define callee-expr (caddr callee-params))
-           (define callee-vars (car params))
-           
-           (if (null? (cdr params))
-             ;; No caller - direct assertion failure at top level
-             (show-runtime-error callee-params)
-             ;; Has caller - show full call stack
-             (let ((caller-params (cadr params)))
-               (define caller-module-path (car caller-params))
-               (define caller-code-range (cadr caller-params))
-               (define caller-expr (caddr caller-params))
-               (define callee-name (last caller-params))
+  (case (error-exception-message e)
+    ((contract-violation)
+     (let ((params (error-exception-parameters e)))
+       (define callee-params (last params))
+       (define callee-module-path (car callee-params))
+       (define callee-code-range (cadr callee-params))
+       (define callee-expr (caddr callee-params))
+       (define callee-vars (car params))
+       
+       (if (null? (cdr params))
+         ;; No caller - direct assertion failure at top level
+         (show-runtime-error callee-params)
+         ;; Has caller - show full call stack
+         (let ((caller-params (cadr params)))
+           (define caller-module-path (car caller-params))
+           (define caller-code-range (cadr caller-params))
+           (define caller-expr (caddr caller-params))
+           (define callee-name (last caller-params))
 
-               (ra::display-err (string-append "\033[96m" caller-module-path "\033[0m\n"))
-               (ra::display-error-code caller-expr caller-code-range)
-               (ra::display-err "called \033[93m")
-               (ra::display-err callee-name)
-               (ra::display-err " \033[0m")
-               (ra::display-err "violating\n\n")
-               (ra::display-err (string-append "\033[96m" callee-module-path "\033[93m\n"))
-               (ra::display-error-code callee-expr callee-code-range)
-               (if (not (null? (ra::dictionary-alist callee-vars)))
-                 (begin
-                   (ra::display-err "\033[0mwhere:\n")
-                   ((map-over (ra::dictionary-alist callee-vars))
-                    (lambda (kv)
-                      (ra::display-err (car kv))
-                      (ra::display-err " = ")
-                      (pp (cdr kv)))))))))
-        )
+           (ra::display-err (string-append "\033[96m" caller-module-path "\033[0m\n"))
+           (ra::display-error-code caller-expr caller-code-range)
+           (ra::display-err "called \033[93m")
+           (ra::display-err callee-name)
+           (ra::display-err " \033[0m")
+           (ra::display-err "violating\n\n")
+           (ra::display-err (string-append "\033[96m" callee-module-path "\033[93m\n"))
+           (ra::display-error-code callee-expr callee-code-range)
+           (if (not (null? (ra::dictionary-alist callee-vars)))
+             (begin
+               (ra::display-err "\033[0mwhere:\n")
+               ((map-over (ra::dictionary-alist callee-vars))
+                (lambda (kv)
+                  (ra::display-err (car kv))
+                  (ra::display-err " = ")
+                  (pp (cdr kv)))))))))
+    )
 
-        ((duplicate-definitions)
-         (let ((error-params (cdar (error-exception-parameters e))))
-           (define error-module-path (car error-params))
-           (define error-code-range (cadr (cadr error-params)))
-           (define error-expr (caddr error-params))
-           (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
-           (ra::display-error-code error-expr error-code-range))
-        )
-        
-        ((not-a-callable-value)
-         (let ((value (car (error-exception-parameters e))))
-           (show-runtime-error (last (error-exception-parameters e)))
-           (display-param value))
-        )
-        
-        ((required-args-not-passed)
-         (let ((not-passed (car (error-exception-parameters e))))
-           (show-runtime-error (last (error-exception-parameters e)))
-           (ra::display-err
-             (apply string-append
-               (map (lambda (a) (string-append (car a) " "))
-                    (filter (lambda (a) (equal? 'list-ref (caadr a)))
-                            (car not-passed)))))
-           (ra::display-err "\n")
-           (if (not (null? (cadr not-passed)))
-             (ra::display-err (cadr not-passed))))
-        )
-        
-        ((default-passed-from-outside unexpected-positional-arg)
-         (show-runtime-error (last (error-exception-parameters e)))
-         (display-param (car (error-exception-parameters e)))
-        )
-        
-        ((unbound-variable)
-         (let ((params (error-exception-parameters e)))
-           (if (null? params)
-             (display-param "Unknown variable")
-             (show-runtime-error (last params))))
-        )
-        
-        ((attempted-to-use-unbound-values-in-macro)
-         (show-runtime-error (last (error-exception-parameters e)))
-        )
-        
-        ((unexpected-keyword-arg arg-passed-twice)
-         (let ((params (error-exception-parameters e)))
-           (display-with-context (error-exception-message e) params)
-           (let ((arg (car params)))
-             (display-key-value (car arg) (cadr arg))))
-        )
-        
-        ((not-a-list-or-dict positional-after-key)
-         (let ((params (error-exception-parameters e)))
-           (display-with-context (error-exception-message e) params))
-        )
-        
-        ((unsupported-data)
-         (display-param (error-exception-parameters e))
-        )
-        
-        ((either-group-already-passed)
-         (let ((params (error-exception-parameters e)))
-           (show-runtime-error (last params))
-           (let ((var-info (car params)))
-             (display-key-value (car var-info) (last var-info))
-             (ra::display-err "conflicts with ")
-             (ra::display-in-red (cadr var-info))
-             (ra::display-err "\n")))
-        )
-        
-        ((no-such-file)
-         (display-param (car (error-exception-parameters e))))
-        
-        (else
-         (let ((error-params (cdar (error-exception-parameters e))))
-           (define error-module-path (car error-params))
-           (define error-code-range (cadr (cadr error-params)))
-           (define error-expr (caddr error-params))
-           (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
-           (ra::display-error-code error-expr error-code-range))))
-    (begin
-      ;; Handle non-error-exceptions (like type-exception)
-      (raise e)))))
+    ((duplicate-definitions)
+     (let ((error-params (cdar (error-exception-parameters e))))
+       (define error-module-path (car error-params))
+       (define error-code-range (cadr (cadr error-params)))
+       (define error-expr (caddr error-params))
+       (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
+       (ra::display-error-code error-expr error-code-range))
+    )
+    
+    ((not-a-callable-value)
+     (let ((value (car (error-exception-parameters e))))
+       (show-runtime-error (last (error-exception-parameters e)))
+       (display-param value))
+    )
+    
+    ((required-args-not-passed)
+     (let ((not-passed (car (error-exception-parameters e))))
+       (show-runtime-error (last (error-exception-parameters e)))
+       (ra::display-err
+         (apply string-append
+           (map (lambda (a) (string-append (car a) " "))
+                (filter (lambda (a) (equal? 'list-ref (caadr a)))
+                        (car not-passed)))))
+       (ra::display-err "\n")
+       (if (not (null? (cadr not-passed)))
+         (ra::display-err (cadr not-passed))))
+    )
+    
+    ((default-passed-from-outside unexpected-positional-arg)
+     (show-runtime-error (last (error-exception-parameters e)))
+     (display-param (car (error-exception-parameters e)))
+    )
+    
+    ((unbound-variable)
+     (let ((params (error-exception-parameters e)))
+       (if (null? params)
+         (display-param "Unknown variable")
+         (show-runtime-error (last params))))
+    )
+    
+    ((attempted-to-use-unbound-values-in-macro)
+     (show-runtime-error (last (error-exception-parameters e)))
+    )
+    
+    ((unexpected-keyword-arg arg-passed-twice)
+     (let ((params (error-exception-parameters e)))
+       (display-with-context (error-exception-message e) params)
+       (let ((arg (car params)))
+         (display-key-value (car arg) (cadr arg))))
+    )
+    
+    ((not-a-list-or-dict positional-after-key)
+     (let ((params (error-exception-parameters e)))
+       (display-with-context (error-exception-message e) params))
+    )
+    
+    ((unsupported-data)
+     (display-param (error-exception-parameters e))
+    )
+    
+    ((either-group-already-passed)
+     (let ((params (error-exception-parameters e)))
+       (show-runtime-error (last params))
+       (let ((var-info (car params)))
+         (display-key-value (car var-info) (last var-info))
+         (ra::display-err "conflicts with ")
+         (ra::display-in-red (cadr var-info))
+         (ra::display-err "\n")))
+    )
+    
+    ((no-such-file)
+     (display-param (car (error-exception-parameters e))))
+    
+    (else
+      (let ((error-params (cdar (error-exception-parameters e))))
+        (define error-module-path (car error-params))
+        (define error-code-range (cadr (cadr error-params)))
+        (define error-expr (caddr error-params))
+        (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
+        (ra::display-error-code error-expr error-code-range)))))
 
 
 (define-syntax ra::handle-crash
