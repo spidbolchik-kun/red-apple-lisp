@@ -156,7 +156,7 @@
                 (lambda (kv)
                   (ra::display-err (car kv))
                   (ra::display-err " = ")
-                  (pp (cdr kv)))))))))
+                  (ra::print (cdr kv)))))))))
     )
 
     ((duplicate-definitions)
@@ -215,9 +215,21 @@
        (display-with-context (error-exception-message e) params))
     )
     
-    ((unsupported-data)
-     (display-param (error-exception-parameters e))
-    )
+     ((get-operation-not-supported)
+      (let ((params (error-exception-parameters e)))
+        (define call-info (car params))
+        (define structure (cadr params))
+        (define itemgetter-path (caddr params))
+        
+        ;; Display the code segment from call-info
+        (show-runtime-error call-info)
+        
+        (ra::display-err "trying to get from: ")
+        (ra::print structure)
+        
+        (ra::display-err "item: ")
+        (ra::print itemgetter-path))
+     )
     
     ((either-group-already-passed)
      (let ((params (error-exception-parameters e)))
@@ -693,6 +705,16 @@
       (if (procedure? callable*)
         (perform-call meta)
         (if (or (list? callable*) (ra::dictionary? callable*) (string? callable*))
-          (ra::get callable* positional
-            stop-on-void: (if (assoc "stop-on-nil" kw) #t #f))
+          (with-exception-catcher
+            (lambda (e)
+              (if (and (error-exception? e)
+                       (equal? (error-exception-message e) 'unsupported-data))
+                (apply error
+                  `(get-operation-not-supported
+                    ,call-info
+                    ,@(error-exception-parameters e)))
+                (raise e)))
+            (lambda ()
+              (ra::get callable* positional
+                stop-on-void: (if (assoc "stop-on-nil" kw) #t #f))))
           (error 'not-a-callable-value callable* call-info)))))
