@@ -108,10 +108,19 @@
     (ra::display-err value)
     (ra::display-err "\n"))
   
+  (define (display-macro-expansion-info error-params)
+    (define macro-info (car error-params))
+    (if (not (equal? macro-info #!void))
+      (let ()
+        (define error-code-range (car macro-info))
+        (define error-expr (cadr macro-info))
+        (ra::display-err (string-append "\033[96mthe result of macro expansion at\033[0m\n"))
+        (ra::display-error-code error-expr error-code-range))))
+  
   (define (show-runtime-error error-params)
-    (define error-module-path (car error-params))
-    (define error-code-range (cadr error-params))
-    (define error-expr (caddr error-params))
+    (define error-module-path (cadr error-params))
+    (define error-code-range (caddr error-params))
+    (define error-expr (cadddr error-params))
     (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
     (ra::display-error-code error-expr error-code-range))
   
@@ -126,19 +135,20 @@
     ((contract-violation)
      (let ((params (error-exception-parameters e)))
        (define callee-params (last params))
-       (define callee-module-path (car callee-params))
-       (define callee-code-range (cadr callee-params))
-       (define callee-expr (caddr callee-params))
+       (define callee-module-path (cadr callee-params))
+       (define callee-code-range (caddr callee-params))
+       (define callee-expr (cadddr callee-params))
        (define callee-vars (car params))
        
+       (display-macro-expansion-info callee-params)
        (if (null? (cdr params))
          ;; No caller - direct assertion failure at top level
          (show-runtime-error callee-params)
          ;; Has caller - show full call stack
          (let ((caller-params (cadr params)))
-           (define caller-module-path (car caller-params))
-           (define caller-code-range (cadr caller-params))
-           (define caller-expr (caddr caller-params))
+           (define caller-module-path (cadr caller-params))
+           (define caller-code-range (caddr caller-params))
+           (define caller-expr (cadddr caller-params))
            (define callee-name (last caller-params))
 
            (ra::display-err (string-append "\033[96m" caller-module-path "\033[0m\n"))
@@ -161,21 +171,24 @@
 
     ((duplicate-definitions)
      (let ((error-params (cdar (error-exception-parameters e))))
-       (define error-module-path (car error-params))
-       (define error-code-range (cadr (cadr error-params)))
-       (define error-expr (caddr error-params))
-       (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
-       (ra::display-error-code error-expr error-code-range))
+       (display-macro-expansion-info error-params)
+       (let ((error-module-path (cadr error-params))
+             (error-code-range (caddr (caddr error-params)))
+             (error-expr (cadddr error-params)))
+         (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
+         (ra::display-error-code error-expr error-code-range)))
     )
     
     ((not-a-callable-value)
      (let ((value (car (error-exception-parameters e))))
+       (display-macro-expansion-info (last (error-exception-parameters e)))
        (show-runtime-error (last (error-exception-parameters e)))
        (display-param value))
     )
     
     ((required-args-not-passed)
      (let ((not-passed (car (error-exception-parameters e))))
+       (display-macro-expansion-info (last (error-exception-parameters e)))
        (show-runtime-error (last (error-exception-parameters e)))
        (ra::display-err
          (apply string-append
@@ -188,6 +201,7 @@
     )
     
     ((default-passed-from-outside unexpected-positional-arg)
+     (display-macro-expansion-info (last (error-exception-parameters e)))
      (show-runtime-error (last (error-exception-parameters e)))
      (display-param (car (error-exception-parameters e)))
     )
@@ -196,15 +210,19 @@
      (let ((params (error-exception-parameters e)))
        (if (null? params)
          (display-param "Unknown variable")
-         (show-runtime-error (last params))))
+         (begin
+           (display-macro-expansion-info (last params))
+           (show-runtime-error (last params)))))
     )
     
     ((attempted-to-use-unbound-values-in-macro)
+     (display-macro-expansion-info (last (error-exception-parameters e)))
      (show-runtime-error (last (error-exception-parameters e)))
     )
     
     ((unexpected-keyword-arg arg-passed-twice)
      (let ((params (error-exception-parameters e)))
+       (display-macro-expansion-info (last params))
        (display-with-context (error-exception-message e) params)
        (let ((arg (car params)))
          (display-key-value (car arg) (cadr arg))))
@@ -212,6 +230,7 @@
     
     ((not-a-list-or-dict positional-after-key)
      (let ((params (error-exception-parameters e)))
+       (display-macro-expansion-info (last params))
        (display-with-context (error-exception-message e) params))
     )
     
@@ -221,6 +240,8 @@
         (define structure (cadr params))
         (define itemgetter-path (caddr params))
         
+        ;; Display macro expansion info if available
+        (display-macro-expansion-info call-info)
         ;; Display the code segment from call-info
         (show-runtime-error call-info)
         
@@ -233,6 +254,7 @@
     
     ((either-group-already-passed)
      (let ((params (error-exception-parameters e)))
+       (display-macro-expansion-info (last params))
        (show-runtime-error (last params))
        (let ((var-info (car params)))
          (display-key-value (car var-info) (last var-info))
@@ -246,11 +268,12 @@
     
     (else
       (let ((error-params (cdar (error-exception-parameters e))))
-        (define error-module-path (car error-params))
-        (define error-code-range (cadr (cadr error-params)))
-        (define error-expr (caddr error-params))
-        (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
-        (ra::display-error-code error-expr error-code-range)))))
+        (display-macro-expansion-info error-params)
+        (let ((error-module-path (cadr error-params))
+              (error-code-range (caddr (caddr error-params)))
+              (error-expr (cadddr error-params)))
+          (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
+          (ra::display-error-code error-expr error-code-range))))))
 
 
 (define-syntax ra::handle-crash

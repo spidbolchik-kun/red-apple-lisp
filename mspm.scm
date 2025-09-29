@@ -34,11 +34,17 @@
   (unique (sexp-refs* sexp)))
 
 
+(define (get-macro-expansion sexp)
+  ; MOCK
+  (list 'list '(list 10 5 10 20) "macro-expansion-test"))
+
+
 (define (sexp->code sexp)
   (define res (get-code-slice sexp))
   (if (not res)
-    `(list "unknown" (quote (-1 -1 -1 -1)) ,(object->string sexp) (quote ()))
-    `(list ,(ast-obj-path res)
+    `(list ,(get-macro-expansion sexp) "unknown" (quote (-1 -1 -1 -1)) ,(object->string sexp) (quote ()))
+    `(list ,(get-macro-expansion sexp)
+           ,(ast-obj-path res)
            (quote ,(code-ast-obj-lines-cols res))
            ,(code-ast-obj->string res)
            (quote ,(sexp-refs sexp)))))
@@ -48,7 +54,6 @@
 ;(define library-path (car (read-file-string-list "library-path")))
 
 
-(define-structure macro-expansion original processed)
 (define-structure module full-path ast-tree)
 
 
@@ -616,7 +621,11 @@
         (cons (assert-is-value (car sexp)) (cdr sexp))))))
 
 
-(define-structure codegen-info ns assignment-to)
+(define-structure codegen-info ns assignment-to macro-expansion-code)
+
+(define (set-macro-expansion-code ci code)
+  (if (equal? #!void (codegen-info-macro-expansion-code ci))
+    (codegen-info-macro-expansion-code-code-set ci code)))
 
 (define (codegen-info-is-top-level ci)
   (string? (me-ns-parent-or-modpath (codegen-info-ns ci))))
@@ -626,7 +635,8 @@
 
 (define (codegen-info-branch-out! ci)
   (make-codegen-info (me-ns-branch-out! (codegen-info-ns ci))
-                     (codegen-info-assignment-to ci)))
+                     (codegen-info-assignment-to ci)
+                     (codegen-info-macro-expansion-code ci)))
 
 (define (codegen-info-set-var! ci var value)
   (let ((ns (codegen-info-ns ci)))
@@ -736,7 +746,7 @@
           (lambda ()
             (ns->scheme
               sexp-code
-              (make-codegen-info (get-module-ns! full-path) #f))
+              (make-codegen-info (get-module-ns! full-path) #f #!void))
             #!void))))
         (if (mspm-error? maybe-error)
           (error (mspm-error-path-set maybe-error full-path))
@@ -861,7 +871,7 @@
                                (procedure-with-dynamic-ns (me-ns-ref (codegen-info-ns ci) (caar sexp)))))
                              (cdar sexp))
                            (cdr sexp))
-                         ci)))
+                         (set-macro-expansion-code ci (sexp->code (car sexp))))))
 
                     ((equal? "define-macro" (caar sexp))
                      (let ((def (cdar sexp)))
@@ -994,7 +1004,7 @@
                (eval (eval-sc-sexp-to-tmpvar
                  (procedure-with-dynamic-ns (me-ns-ref (codegen-info-ns ci) (car sexp)))))
                (cdr sexp))
-             ci))
+             (set-macro-expansion-code ci (sexp->code sexp))))
 
           ((equal? (car sexp) "do")
            (val->scheme `("let" ,@(cdr sexp)) ci))
