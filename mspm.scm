@@ -39,7 +39,7 @@
   (define me-info*
     (if (equal? me-info #!void)
       #!void
-      (list (cadr (list-ref me-info 3)) (list-ref me-info 4))))
+      (list (caddr me-info) (cadr (list-ref me-info 3)) (list-ref me-info 4))))
   (if (not res)
     `(list ,me-info* "unknown" (quote (-1 -1 -1 -1)) ,(object->string sexp) (quote ()))
     `(list ,me-info*

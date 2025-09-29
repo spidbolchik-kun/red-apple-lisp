@@ -112,9 +112,14 @@
     (define macro-info (car error-params))
     (if (not (equal? macro-info #!void))
       (let ()
-        (define error-code-range (car macro-info))
-        (define error-expr (cadr macro-info))
-        (ra::display-err (string-append "\033[96mthe result of macro expansion at\033[0m\n"))
+        (define module-path (car macro-info))
+        (define error-code-range (cadr macro-info))
+        (define error-expr (caddr macro-info))
+        (ra::display-err
+          (string-append
+            "\033[96mthe result of macro expansion at "
+            module-path
+            "\033[0m\n"))
         (ra::display-error-code error-expr error-code-range))))
   
   (define (show-runtime-error error-params)
