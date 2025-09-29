@@ -34,16 +34,15 @@
   (unique (sexp-refs* sexp)))
 
 
-(define (get-macro-expansion sexp)
-  ; MOCK
-  (list 'list '(list 10 5 10 20) "macro-expansion-test"))
-
-
 (define (sexp->code sexp me-info)
   (define res (get-code-slice sexp))
+  (define me-info*
+    (if (equal? me-info #!void)
+      #!void
+      (list (cadr (list-ref me-info 3)) (list-ref me-info 4))))
   (if (not res)
-    `(list ,(get-macro-expansion sexp) "unknown" (quote (-1 -1 -1 -1)) ,(object->string sexp) (quote ()))
-    `(list ,(get-macro-expansion sexp)
+    `(list ,me-info* "unknown" (quote (-1 -1 -1 -1)) ,(object->string sexp) (quote ()))
+    `(list ,me-info*
            ,(ast-obj-path res)
            (quote ,(code-ast-obj-lines-cols res))
            ,(code-ast-obj->string res)

@@ -175,7 +175,8 @@
       (let ((range (if (range? marked)
                      marked
                      (init-range marked (cursor-step marked)))))
-        `(list ,path
+        `(list #!void
+               ,path
                (quote ,(range-lines-cols range))
                ,(range->string range)
                (quote '()))))))

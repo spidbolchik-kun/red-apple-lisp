@@ -270,7 +270,7 @@
       (let ((error-params (cdar (error-exception-parameters e))))
         (display-macro-expansion-info error-params)
         (let ((error-module-path (cadr error-params))
-              (error-code-range (caddr (caddr error-params)))
+              (error-code-range (cadr (caddr error-params)))
               (error-expr (cadddr error-params)))
           (ra::display-err (string-append "\033[96m" error-module-path "\033[0m\n"))
           (ra::display-error-code error-expr error-code-range))))))
