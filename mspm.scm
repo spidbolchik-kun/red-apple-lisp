@@ -821,6 +821,15 @@
           (let* ((dest
                    ((map-over (destructuring-identifiers sym-dest (codegen-info-macro-expansion-code ci)))
                     (lambda (v) (cons (string-append pref (car v)) (cdr v)))))
+                 (tl-macros
+                   (map (lambda (v)
+                          (codegen-info-set-var! ci (car v)
+                            (me-ns-ref (get-module-ns! full-path) (cdadr v)))
+                          (car v))
+                     ((filter-over dest)
+                      (lambda (v) (and (= (length (cdr v)) 1)
+                                       (equal? (caadr v) 'kv-ref)
+                                       (macro? (me-ns-ref (get-module-ns! full-path) (car v))))))))
                  (imported-tl (unique (map cdadr dest)))
                  (dct-sym (gensym!))
                  (getters-sym (gensym!)))
@@ -844,8 +853,8 @@
                   (lambda (kv)
                     (define getter-exp
                       `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
-                    (pp getter-exp)
-                    (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp))
+                    (if (not (member (car kv) tl-macros))
+                      (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp)))
                     `(define ,(get-variable-sym-with-pref! (car kv))
                              ,getter-exp))))))))))
 
@@ -1010,7 +1019,9 @@
               (string-prefix? "ra::" sexp)
               (string-prefix? "make-ra::" sexp))
         (string->symbol sexp)
-        (var-getter ci sexp))
+        (if (macro? (me-ns-ref (codegen-info-ns ci) sexp #f))
+          (crash 'tried-to-use-macro-as-a-value (sexp->code sexp (codegen-info-macro-expansion-code ci)))
+          (var-getter ci sexp)))
       (if (not (list? sexp))
         sexp
         (cond
