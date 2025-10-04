@@ -97,31 +97,77 @@
 
 
 (define (ast-obj->sexp obj #!key parent backquoted)
-  (define wrap
-    (fn-if
-      (not (one-of? (ast-obj-type obj) '(unquoted-symbol #\()))
-      (wrap-into-list
-        (if (equal? (ast-obj-type obj) #\{) "kv-quote" "quote"))))
-
   (define bq (or backquoted (equal? (ast-obj-type obj) "`(")))
+
+  (define wrap
+    (if bq
+      (lambda (val)
+        (cond ((equal? (ast-obj-type obj) 'unquoted-symbol)
+               (if (not (string? val))
+                 val
+                 (if (string-prefix? "~~" val)
+                   (crash 'double-unquote-marker (sexp->code val #!void))
+                   (if (string-prefix? "~" val)
+                     (let ((new-val (substring val 1 (string-length val))))
+                       (add-sexp! new-val (get-code-slice val))
+                       new-val)
+                     `("quote" ,val)))))
+              ((member (ast-obj-type obj) '(#\( "`(" #\"))
+               `("quote" ,val))
+              ((equal? (ast-obj-type obj) #\[)
+               `("quote" (("quote" "quote") ("quote" ,val))))
+              ((equal? (ast-obj-type obj) #\{)
+               `("quote" (("quote" "kv-quote") ("quote" ,val))))
+              (else
+                (error "unhandled ast type" (ast-obj-type obj)))))
+      (if (and (equal? (ast-obj-type obj) 'unquoted-symbol)
+               (string? (ast-obj-data obj))
+               (string-prefix? "~" (ast-obj-data obj)))
+        (crash 'unquote-marker-not-in-a-backquoted-list
+               (sexp->code (let ()
+                             (add-sexp! (ast-obj-data obj) obj)
+                             (ast-obj-data obj))
+                           #!void))
+        (fn-if
+          (not (one-of? (ast-obj-type obj) '(unquoted-symbol #\()))
+          (wrap-into-list
+            (if (equal? (ast-obj-type obj) #\{) "kv-quote" "quote"))))))
+
+  (define (traverse children unquote-marker)
+    (if (null? children)
+      (if unquote-marker
+        (crash 'wrong-unquote-marker (sexp->code unquote-marker #!void))
+        '())
+      (let ((child* (ast-obj->sexp (car children)
+                      parent: obj
+                      backquoted: (and bq (not unquote-marker)))))
+        (if (equal? "~" (ast-obj-data (car children)))
+          (if (not bq)
+            (crash 'unquote-marker-not-in-a-backquoted-list
+                   (sexp->code (ast-obj-data (car children)) #!void))
+            (if unquote-marker
+              (crash 'double-unquote-marker
+                     (sexp->code (ast-obj-data (car children)) #!void))
+              (traverse (cdr children) (ast-obj-data (car children)))))
+          (cons child* (traverse (cdr children) #f))))))
 
   (let ((wrapped
     (wrap
       (let ((sexp
         (if (list? (ast-obj-data obj))
-          (map (lambda (child)
-                 (ast-obj->sexp child
-                    parent: obj
-                    backquoted: (equal? (ast-obj-type obj) "`(")))
-               (filter (lambda (child) (not (equal? (ast-obj-type child) #\;)))
-                       (ast-obj-data obj)))
+          (traverse
+            (filter (lambda (child) (not (equal? (ast-obj-type child) #\;)))
+                    (ast-obj-data obj))
+            #f)
           (ast-obj-data obj))
         ))
         (if parent (ast-obj-lvl-up-set! sexp parent))
         (add-sexp! sexp obj)
         sexp))))
     (add-sexp! wrapped obj)
-    wrapped))
+    wrapped
+    )
+  )
 
 
 (define (prefixize-head-=-chain sexp-list me-info #!key wrap-standalone)
@@ -154,6 +200,41 @@
     (let ((res (prefixize-head-=-chain sexp-list me-info
                  wrap-standalone: wrap-standalone)))
       (cons (car res) (prefixize-= (cdr res) me-info wrap-standalone: wrap-standalone)))))
+
+
+
+(define (list-block-vars sexp me-info)
+  (define (ls-vars lval)
+    (if (string? lval)
+      (list lval)
+      (if (list? lval)
+        (map car (destructuring-identifiers lval me-info))
+        '())))
+
+  (if (null? sexp)
+    '()
+    (apply append
+      ((map-over (prefixize-= sexp me-info))
+       (lambda (sexp)
+         (if (and (list? sexp) (not (null? sexp)))
+           (cond ((and (equal? (car sexp) "define-macro")
+                       (not (null? (cdr sexp)))
+                       (string? (cadr sexp)))
+                  (list (cadr sexp)))
+                 ((and (equal? (car sexp) "define")
+                       (not (null? (cdr sexp))))
+                  (if (string? (cadr sexp))
+                    (list (cadr sexp))
+                    (if (and (list? (cadr sexp))
+                             (not (null? (cadr sexp)))
+                             (string? (caadr sexp)))
+                      (list (caadr sexp))
+                      '())))
+                 ((and (equal? (car sexp) "assign")
+                       (>= (length sexp) 3))
+                  (let ((vars (but-last (cdr sexp))))
+                    (apply append (map ls-vars vars))))
+                 (else '()))))))))
 
 
 (define (bad-quotes-and-refs sexp me-info)
@@ -662,8 +743,8 @@
       (define scm-val (val->scheme rval ci))
       (define nspref-lval (ra::set-ns (ra::erase-ns lval) (codegen-info-ns ci)))
       (define ci-rval
-        (if (procedure-sexp? rval)
-          rval
+        (if #f ;(procedure-sexp? scm-val)
+          scm-val
           (eval-sc-sexp-to-tmpvar (with-dynamic-ns (codegen-info-ns ci) scm-val))))
       (codegen-info-set-var! ci lval ci-rval)
       (if (not (codegen-info-is-top-level ci))
@@ -821,7 +902,7 @@
           (let* ((dest
                    ((map-over (destructuring-identifiers sym-dest (codegen-info-macro-expansion-code ci)))
                     (lambda (v) (cons (string-append pref (car v)) (cdr v)))))
-                 (tl-macros
+                 (tl-procedures
                    (map (lambda (v)
                           (codegen-info-set-var! ci (car v)
                             (me-ns-ref (get-module-ns! full-path) (cdadr v)))
@@ -829,7 +910,7 @@
                      ((filter-over dest)
                       (lambda (v) (and (= (length (cdr v)) 1)
                                        (equal? (caadr v) 'kv-ref)
-                                       (macro? (me-ns-ref (get-module-ns! full-path) (car v))))))))
+                                       (procedure-sexp? (me-ns-ref (get-module-ns! full-path) (cdadr v))))))))
                  (imported-tl (unique (map cdadr dest)))
                  (dct-sym (gensym!))
                  (getters-sym (gensym!)))
@@ -853,7 +934,7 @@
                   (lambda (kv)
                     (define getter-exp
                       `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
-                    (if (not (member (car kv) tl-macros))
+                    (if (not (member (car kv) tl-procedures))
                       (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp)))
                     `(define ,(get-variable-sym-with-pref! (car kv))
                              ,getter-exp))))))))))
@@ -885,7 +966,9 @@
                              (sexp->code (car sexp) #!void)
                              (eval (eval-sc-sexp-to-tmpvar
                                (procedure-with-dynamic-ns (me-ns-ref (codegen-info-ns ci) (caar sexp)))))
-                             (cdar sexp))
+                             (get-procedure-ns (me-ns-ref (codegen-info-ns ci) (caar sexp)))
+                             (cdar sexp)
+                             (codegen-info-macro-expansion-code ci))
                            (cdr sexp))
                          (set-macro-expansion-code ci (sexp->code (car sexp) #!void))
                          )))
@@ -1001,8 +1084,32 @@
         (else (crash 'not-a-quoted-structure (sexp->code sexp (codegen-info-macro-expansion-code ci))))))
 
 
-(define (expand-macro code proc sexp)
-  (ra::call code proc (list (list 'positional sexp))))
+(define (expand-macro code proc def-ns sexp me-info)
+  (define (inject-all sexp)
+    (if (list? sexp)
+      (map inject-all sexp)
+      (if (string? sexp)
+        (ra::inject sexp)
+        sexp)))
+  
+  (define (set-ns-and-erase-injections sexp)
+    (if (list? sexp)
+      (map set-ns-and-erase-injections sexp)
+      (if (string? sexp)
+        (if (ra::injected? sexp)
+          (ra::erase-ns sexp)
+          (ra::set-ns sexp def-ns))
+        sexp)))
+
+  (define res
+    (set-ns-and-erase-injections
+      (ra::call code proc (list (list 'positional sexp)))))
+
+  (if (and (list? res) (not (null? res)) (equal? (car res) "do"))
+    (for-each top-do-block-add-inj!
+              (list-block-vars (cdr res) me-info)))
+
+  res)
 
 
 (define (val->scheme sexp ci)
@@ -1033,7 +1140,9 @@
                (sexp->code sexp #!void)
                (eval (eval-sc-sexp-to-tmpvar
                  (procedure-with-dynamic-ns (me-ns-ref (codegen-info-ns ci) (car sexp)))))
-               (cdr sexp))
+               (get-procedure-ns (me-ns-ref (codegen-info-ns ci) (car sexp)))
+               (cdr sexp)
+               (codegen-info-macro-expansion-code ci))
              (set-macro-expansion-code ci (sexp->code sexp #!void))))
 
           ((equal? (car sexp) "do")

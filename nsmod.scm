@@ -100,6 +100,10 @@
       cpy)))
 
 
+(define (ra::injected? sym)
+  (table-ref injected-map sym #f))
+
+
 (define (ra::set-ns sym ns)
   (if (table-ref sym-ns-map sym #f)
     sym
@@ -137,6 +141,17 @@
       (if (not res) res (me-ns-num res))))
   (equal? (cons x (ns-num-or-false x))
           (cons y (ns-num-or-false y))))
+
+
+(define top-do-block-inj (make-table test: syms-equal?))
+
+
+(define (top-do-block-add-inj! sym)
+  (table-set! top-do-block-inj sym #t))
+
+
+(define (inj-in-top-lvl-block? sym)
+  (table-ref top-do-block-inj sym #f))
 
 
 (define (get-module-ns! normalized-path)
@@ -250,7 +265,7 @@
   (define new-dict (make-table test: syms-equal?))
 
   (for-each (lambda (kv) (table-set! new-dict (car kv) (cdr kv)))
-    (filter (lambda (kv) (not (equal? (cdr kv) proc-sexp)))
+    (filter (lambda (kv) (not (eq? (cdr kv) proc-sexp)))
             (table->list (me-ns-dict proc-ns))))
 
   (with-dynamic-ns (me-ns-dict-set proc-ns new-dict) proc-sexp))

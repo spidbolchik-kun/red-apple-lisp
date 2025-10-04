@@ -198,3 +198,8 @@
           'nil
           value))))
   (pp (prepare value)))
+
+
+(define-structure event ts val)
+(define-structure ra::event-stream pair pred)
+(define-structure ra::behavior fn)
