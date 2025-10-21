@@ -56,6 +56,7 @@ syn region schemeMultilineComment start=/#|/ end=/|#/ contains=schemeMultilineCo
 
 syn region schemeForm matchgroup=schemeParentheses start="(" end=")" contains=ALLBUT,schemeUnquote,schemeDatumCommentForm,@schemeImportCluster
 syn region schemeForm matchgroup=schemeParentheses start="\[" end="\]" contains=ALLBUT,schemeUnquote,schemeDatumCommentForm,@schemeImportCluster
+syn region schemeForm matchgroup=schemeParentheses start="{" end="}" contains=ALLBUT,schemeUnquote,schemeDatumCommentForm,@schemeImportCluster
 
 syn region schemeVector matchgroup=schemeData start="#(" end=")" contains=ALLBUT,schemeQuasiquote,schemeQuasiquoteForm,schemeUnquote,schemeForm,schemeDatumCommentForm,schemeImport,@schemeImportCluster,@schemeSyntaxCluster
 syn region schemeVector matchgroup=schemeData start="#[fsu]\d\+(" end=")" contains=schemeNumber,schemeComment,schemeDatumComment
@@ -178,6 +179,9 @@ syn keyword schemeFunction replace-item
 syn keyword schemeFunction replace-item*
 syn keyword schemeFunction partition
 syn keyword schemeFunction sort
+syn keyword schemeFunction list
+syn keyword schemeFunction call-with
+syn keyword schemeFunction split-key
 
 syn keyword schemeFunction read-file-string!
 
@@ -203,6 +207,7 @@ hi def link schemeNumber Number
 hi def link schemeParentheses Normal
 hi def link schemeQuasiquote Delimiter
 hi def link schemeQuote Delimiter
+hi def link schemeRestMarker Special
 hi def link schemeSpecialSyntax Special
 hi def link schemeString String
 hi def link schemeSymbol Normal

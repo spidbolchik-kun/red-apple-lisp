@@ -470,12 +470,6 @@
         kont: (lambda (acc) (kont (cons (car args) acc))))))
 
 
-  ;(comp (split at: (one-of? kinds) keeping-markers: 'on-right)
-  ;      (kv-from-list with-getters: [head tail])
-  ;      (split-key '#key into: ['#key '#key-rest]
-  ;                       with: (split once: at: (== '&) keeping-markers: 'on-right)))
-
-
   (define (separate args)
     (let ((kind (car args))
           (group-and-next (get-one-group (cdr args))))
@@ -838,6 +832,9 @@
             (error maybe-error)))))))
 
 
+(define *tmp-var-for-gambit-values* #!void)
+
+
 (define (import-module! sexp ci)
   (define (get-variable-sym-with-pref! varname)
     (get-variable-symbol! varname (codegen-info-path ci)))
@@ -902,18 +899,33 @@
           (let* ((dest
                    ((map-over (destructuring-identifiers sym-dest (codegen-info-macro-expansion-code ci)))
                     (lambda (v) (cons (string-append pref (car v)) (cdr v)))))
+                 (imported-tl (unique (map cdadr dest)))
+                 (dct-sym (gensym!))
+                 (getters-sym (gensym!))
                  (tl-procedures
                    (map (lambda (v)
                           (codegen-info-set-var! ci (car v)
                             (me-ns-ref (get-module-ns! full-path) (cdadr v)))
                           (car v))
                      ((filter-over dest)
-                      (lambda (v) (and (= (length (cdr v)) 1)
-                                       (equal? (caadr v) 'kv-ref)
-                                       (procedure-sexp? (me-ns-ref (get-module-ns! full-path) (cdadr v))))))))
-                 (imported-tl (unique (map cdadr dest)))
-                 (dct-sym (gensym!))
-                 (getters-sym (gensym!)))
+                      (lambda (v)
+                        (and (= (length (cdr v)) 1)
+                             (equal? (caadr v) 'kv-ref)
+                             (procedure-sexp? (me-ns-ref (get-module-ns! full-path) (cdadr v))))))))
+                 (imported-tl-vars
+                   (make-ra::dictionary
+                     (map (lambda (kv) (cons (car kv) (eval (cdr kv))))
+                          ((filter-over (table->list (me-ns-dict (get-module-ns! full-path))))
+                           (lambda (kv) (not (procedure-sexp? (cdr kv)))))))))
+            (for-each
+              (lambda (kv)
+                (define sym (gensym!))
+                (set! *tmp-var-for-gambit-values* (cdr kv))
+                (eval `(define ,sym *tmp-var-for-gambit-values*))
+                (codegen-info-set-var! ci (car kv) sym))
+              (ra::assignment->ns
+                (filter (lambda (v) (not (member (car v) tl-procedures))) dest)
+                imported-tl-vars))
             (add-deferred-import-statement!
               (lambda ()
                 (for-each
@@ -934,8 +946,6 @@
                   (lambda (kv)
                     (define getter-exp
                       `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
-                    (if (not (member (car kv) tl-procedures))
-                      (codegen-info-set-var! ci (car kv) (eval-sc-sexp-to-tmpvar getter-exp)))
                     `(define ,(get-variable-sym-with-pref! (car kv))
                              ,getter-exp))))))))))
 
@@ -1070,10 +1080,13 @@
               (crash '=-chain-too-long
                      (sexp->code (list-ref =-chain 2) (codegen-info-macro-expansion-code ci)))
               (if (= (length =-chain) 1)
-                (if (not (string? (car =-chain)))
-                  (crash 'not-an-unquoted-symbol
-                         (sexp->code (car =-chain) (codegen-info-macro-expansion-code ci)))
-                  (next rest #f (push (cons (car =-chain) (val->scheme (car =-chain) ci)))))
+                (if (string? (car =-chain))
+                  (next rest #f (push (cons (car =-chain) (val->scheme (car =-chain) ci))))
+                  ;; If it's not a string, only allow if we're in unpack mode
+                  (if unpack
+                    (next rest #f (push (cons #f (val->scheme (car =-chain) ci))))
+                    (crash 'not-an-unquoted-symbol
+                           (sexp->code (car =-chain) (codegen-info-macro-expansion-code ci)))))
                 (next rest #f
                   (push (cons (val->scheme (car =-chain) ci) (val->scheme (cadr =-chain) ci))))))))))))
 

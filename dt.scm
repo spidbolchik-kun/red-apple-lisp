@@ -193,7 +193,8 @@
           (apply append
             (map (lambda (kv)
                    (list (prepare (car kv)) '= (prepare (cdr kv))))
-                 (ra::dictionary->list value))))
+                 (filter (lambda (kv) (not (equal? #!void (cdr kv))))
+                         (ra::dictionary->list value)))))
         (if (equal? #!void value)
           'nil
           value))))

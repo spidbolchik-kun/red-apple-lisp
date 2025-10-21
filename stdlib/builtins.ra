@@ -426,6 +426,19 @@
   (##list-sort (ra::procedure-code (fn x y (< (by x) (by y)))) list))
 
 
+(define (list & items) items)
+
+
+(define (call-with value procedure)
+  (procedure value))
+
+
+(define (split-key key into with in)
+  (assert (kv? in) (not (nil? (in key))))
+  result = (map (call-with (in key)) with)
+  {& (kv-set key nil in) & (kv-from-list (map list into result))})
+
+
 (define (read-file-string! path)
   (assert (string? path))
   (##read-file-string path))

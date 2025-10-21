@@ -179,8 +179,11 @@
           (table-set! dict sym value)
           (raise e)))
       (lambda ()
-        (table-ref dict sym)
-        (error 'duplicate-definitions sym)))))
+        (if (string? (me-ns-parent-or-modpath ns))
+          (table-set! dict sym value)
+          (begin
+            (table-ref dict sym)
+            (error 'duplicate-definitions sym)))))))
 
 
 (define (me-ns-ref ns sym . def)
