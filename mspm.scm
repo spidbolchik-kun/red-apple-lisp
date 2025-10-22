@@ -1116,7 +1116,7 @@
 
   (define res
     (set-ns-and-erase-injections
-      (ra::call code proc (list (list 'positional sexp)))))
+      (ra::call code proc (list (list 'positional (inject-all sexp))))))
 
   (if (and (list? res) (not (null? res)) (equal? (car res) "do"))
     (for-each top-do-block-add-inj!
