@@ -732,21 +732,34 @@
   (define (get-variable-sym-with-pref! varname)
     (get-variable-symbol! varname (codegen-info-path ci)))
 
+  (define (scm-definitions lval scm-val ci-rval)
+    (define nspref-lval (ra::set-ns (ra::erase-ns lval) (codegen-info-ns ci)))
+    (define no-ns-lval (ra::erase-ns lval))
+    (define lvals
+      (fn-if (inj-in-top-lvl-block? lval) (cons-with no-ns-lval) (list nspref-lval lval)))
+    (define scm-lvals (unique (map get-variable-sym-with-pref! lvals)))
+    (codegen-info-set-var! ci lval ci-rval)
+    ((map-over lvals)
+     (lambda (lval*)
+       (if (not (equal? (get-variable-sym-with-pref! lval*) (get-variable-sym-with-pref! lval)))
+         (codegen-info-set-var! ci lval* ci-rval))))
+    (let ()
+      (define fst-scm-def `(define ,(car scm-lvals) ,scm-val))
+      (define scm-defs-rest
+        ((map-over (cdr scm-lvals))
+         (lambda (scm-lval)
+           `(define ,scm-lval ,(car scm-lvals)))))
+      `(begin ,@(cons fst-scm-def scm-defs-rest))))
+
   (if (not (quoted-structure? lval))
     (let ((ci (codegen-info-assignment-to-set ci lval)))
       (define scm-val (val->scheme rval ci))
-      (define nspref-lval (ra::set-ns (ra::erase-ns lval) (codegen-info-ns ci)))
       (define ci-rval
         (if #f ;(procedure-sexp? scm-val)
           scm-val
           (eval-sc-sexp-to-tmpvar (with-dynamic-ns (codegen-info-ns ci) scm-val))))
-      (codegen-info-set-var! ci lval ci-rval)
-      (if (not (codegen-info-is-top-level ci))
-        (codegen-info-set-var! ci nspref-lval ci-rval))
-      `(begin
-         (define ,(get-variable-sym-with-pref! lval) ,scm-val)
-         (define ,(get-variable-sym-with-pref! nspref-lval)
-                 ,(get-variable-sym-with-pref! lval))))
+      (scm-definitions lval scm-val ci-rval)
+      )
     (let ((getters (destructuring-identifiers lval (codegen-info-macro-expansion-code ci)))
           (tmp-value-sym (gensym!))
           (getters-sym (gensym!)))
@@ -758,15 +771,9 @@
             (lambda (kv)
               (define getter-exp
                 `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
-              (define nspref-lval (ra::set-ns (ra::erase-ns (car kv)) (codegen-info-ns ci)))
               (define ci-rval (eval-sc-sexp-to-tmpvar getter-exp))
-              (codegen-info-set-var! ci (car kv) ci-rval)
-              (if (not (codegen-info-is-top-level ci))
-                (codegen-info-set-var! ci nspref-lval ci-rval))
-              `(begin
-                 (define ,(get-variable-sym-with-pref! (car kv)) ,getter-exp)
-                 (define ,(get-variable-sym-with-pref! nspref-lval)
-                         ,(get-variable-sym-with-pref! (car kv))))))))))
+              (scm-definitions (car kv) getter-exp ci-rval)
+              ))))))
 
 
 (define (var-getter ci val)
@@ -1082,7 +1089,6 @@
               (if (= (length =-chain) 1)
                 (if (string? (car =-chain))
                   (next rest #f (push (cons (car =-chain) (val->scheme (car =-chain) ci))))
-                  ;; If it's not a string, only allow if we're in unpack mode
                   (if unpack
                     (next rest #f (push (cons #f (val->scheme (car =-chain) ci))))
                     (crash 'not-an-unquoted-symbol

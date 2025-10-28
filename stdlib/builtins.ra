@@ -10,6 +10,8 @@
 (define (kv? value) (ra::dictionary? value))
 (define (not value) (##not value))
 (define (nil? value) (##equal? value (##void)))
+(define (not-nil? value) (not (nil? value)))
+
 (define nil (##void))
 
 (define (const value) (fn (& args #key & rest) value))

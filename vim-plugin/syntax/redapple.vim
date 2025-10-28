@@ -30,10 +30,10 @@ syn region schemeQuote matchgroup=schemeData start=/'['`]*#\?(/ end=/)/ contains
 syn region schemeQuasiquote matchgroup=schemeData start=/`['`]*/ end=/[ \t\n()\[\]";]/me=e-1
 syn region schemeQuasiquote matchgroup=schemeData start=/`['`]*#\?(/ end=/)/ contains=ALLBUT,schemeQuote,schemeQuoteForm,schemeForm,schemeDatumCommentForm,schemeImport,@schemeImportCluster,@schemeSyntaxCluster
 
-syn region schemeUnquote matchgroup=schemeParentheses start=/,/ end=/[ `'\t\n\[\]()";]/me=e-1 contained contains=ALLBUT,schemeDatumCommentForm,@schemeImportCluster
-syn region schemeUnquote matchgroup=schemeParentheses start=/,@/ end=/[ `'\t\n\[\]()";]/me=e-1 contained contains=ALLBUT,schemeDatumCommentForm,@schemeImportCluster
-syn region schemeUnquote matchgroup=schemeParentheses start=/,(/ end=/)/ contained contains=ALLBUT,schemeDatumCommentForm,@schemeImportCluster
-syn region schemeUnquote matchgroup=schemeParentheses start=/,@(/ end=/)/ contained contains=ALLBUT,schemeDatumCommentForm,@schemeImportCluster
+syn match schemeUnquote /\~[^ `'\t\n\[\]()";{}\~]\+/ contained
+syn region schemeUnquote matchgroup=schemeParentheses start=/\~(/ end=/)/ contained contains=ALLBUT,schemeDatumCommentForm,@schemeImportCluster
+syn region schemeUnquote matchgroup=schemeParentheses start=/\~\[/ end=/\]/ contained contains=ALLBUT,schemeDatumCommentForm,@schemeImportCluster
+syn region schemeUnquote matchgroup=schemeParentheses start=/\~{/ end=/}/ contained contains=ALLBUT,schemeDatumCommentForm,@schemeImportCluster
 
 syn region schemeQuoteForm matchgroup=schemeData start=/(/ end=/)/ contained contains=ALLBUT,schemeQuasiquote,schemeQuasiquoteForm,schemeUnquote,schemeForm,schemeDatumCommentForm,schemeImport,@schemeImportCluster,@schemeSyntaxCluster
 syn region schemeQuasiquoteForm matchgroup=schemeData start=/(/ end=/)/ contained contains=ALLBUT,schemeQuote,schemeForm,schemeDatumCommentForm,schemeImport,@schemeImportCluster,@schemeSyntaxCluster
@@ -112,6 +112,7 @@ syn keyword schemeFunction list?
 syn keyword schemeFunction kv?
 syn keyword schemeFunction not
 syn keyword schemeFunction nil?
+syn keyword schemeFunction not-nil?
 syn keyword schemeFunction const
 syn keyword schemeFunction identity
 syn keyword schemeFunction empty?
