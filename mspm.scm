@@ -764,6 +764,8 @@
           (tmp-value-sym (gensym!))
           (getters-sym (gensym!)))
       (define scm-val (val->scheme rval ci))
+      (define ci-rhs
+        (eval (eval-sc-sexp-to-tmpvar (with-dynamic-ns (codegen-info-ns ci) scm-val))))
       `(begin
          (define ,tmp-value-sym ,scm-val)
          (define ,getters-sym (ra::assignment->ns (quote ,getters) ,tmp-value-sym))
@@ -771,7 +773,14 @@
             (lambda (kv)
               (define getter-exp
                 `(cdr (assoc ,(car kv) (ra::ns-ref (lambda () ,getters-sym) #!void))))
-              (define ci-rval (eval-sc-sexp-to-tmpvar getter-exp))
+              (define ci-rval
+                (if (ra::me-hole-type? ci-rhs)
+                  ci-rhs
+                  (let ((val (cdar (ra::assignment->ns (list kv) ci-rhs))))
+                    (define sym (gensym!))
+                    (set! *tmp-var-for-gambit-values* val)
+                    (eval `(define ,sym *tmp-var-for-gambit-values*))
+                    sym)))
               (scm-definitions (car kv) getter-exp ci-rval)
               ))))))
 
