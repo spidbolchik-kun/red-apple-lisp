@@ -757,7 +757,7 @@
       (define ci-rval
         (if #f ;(procedure-sexp? scm-val)
           scm-val
-          (eval-sc-sexp-to-tmpvar (with-dynamic-ns (codegen-info-ns ci) scm-val))))
+          (eval-sc-sexp-to-tmpvar #t (with-dynamic-ns (codegen-info-ns ci) scm-val))))
       (scm-definitions lval scm-val ci-rval)
       )
     (let ((getters (destructuring-identifiers lval (codegen-info-macro-expansion-code ci)))
@@ -765,7 +765,7 @@
           (getters-sym (gensym!)))
       (define scm-val (val->scheme rval ci))
       (define ci-rhs
-        (eval (eval-sc-sexp-to-tmpvar (with-dynamic-ns (codegen-info-ns ci) scm-val))))
+        (eval (eval-sc-sexp-to-tmpvar #t (with-dynamic-ns (codegen-info-ns ci) scm-val))))
       `(begin
          (define ,tmp-value-sym ,scm-val)
          (define ,getters-sym (ra::assignment->ns (quote ,getters) ,tmp-value-sym))
@@ -795,8 +795,10 @@
 (define last-evaled #!void)
 
 
-(define (eval-sc-sexp-to-tmpvar sexp)
+(define (eval-sc-sexp-to-tmpvar prohibit-!-calls sexp)
   (set! last-evaled sexp)
+  (if prohibit-!-calls
+    (set! *evaluating-sexp-during-macro-pass* #t))
   (let ((var (gensym!)))
     (with-exception-catcher
       (lambda (e)
@@ -811,6 +813,7 @@
             (raise e)
             )))
       (lambda () (eval `(define ,var ,sexp))))
+    (set! *evaluating-sexp-during-macro-pass* #f)
     var))
 
 
@@ -994,7 +997,7 @@
                          (cons
                            (expand-macro
                              (sexp->code (car sexp) #!void)
-                             (eval (eval-sc-sexp-to-tmpvar
+                             (eval (eval-sc-sexp-to-tmpvar #f
                                (procedure-with-dynamic-ns (me-ns-ref (codegen-info-ns ci) (caar sexp)))))
                              (get-procedure-ns (me-ns-ref (codegen-info-ns ci) (caar sexp)))
                              (cdar sexp)
@@ -1170,7 +1173,7 @@
            (val->scheme
              (expand-macro
                (sexp->code sexp #!void)
-               (eval (eval-sc-sexp-to-tmpvar
+               (eval (eval-sc-sexp-to-tmpvar #f
                  (procedure-with-dynamic-ns (me-ns-ref (codegen-info-ns ci) (car sexp)))))
                (get-procedure-ns (me-ns-ref (codegen-info-ns ci) (car sexp)))
                (cdr sexp)

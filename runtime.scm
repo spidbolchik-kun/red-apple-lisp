@@ -1,6 +1,9 @@
 (include "dt.scm")
 
 
+(define *evaluating-sexp-during-macro-pass* #f)
+
+
 (define (map-over ls) (lambda (fn) (map fn ls)))
 (define (filter-over ls) (lambda (fn) (filter fn ls)))
 
@@ -730,19 +733,25 @@
                 (ra::callable-meta-pa-set new-meta #t)))
             (call))))
 
-      (if (procedure? callable*)
-        (perform-call meta)
-        (if (or (list? callable*) (ra::dictionary? callable*) (string? callable*))
-          (with-exception-catcher
-            (lambda (e)
-              (if (and (error-exception? e)
-                       (equal? (error-exception-message e) 'unsupported-data))
-                (apply error
-                  `(get-operation-not-supported
-                    ,call-info
-                    ,@(error-exception-parameters e)))
-                (raise e)))
-            (lambda ()
-              (ra::get callable* positional
-                stop-on-void: (if (assoc "stop-on-nil" kw) #t #f))))
-          (error 'not-a-callable-value callable* call-info)))))
+    (if (and *evaluating-sexp-during-macro-pass* (not (equal? meta #!void)))
+      (let ((name (ra::callable-meta-name meta)))
+        (if (not (equal? name #!void))
+          (if (equal? (string-ref name (- (string-length name) 1)) #\!)
+            (error 'attempted-to-use-unbound-values-in-macro)))))
+
+    (if (procedure? callable*)
+      (perform-call meta)
+      (if (or (list? callable*) (ra::dictionary? callable*) (string? callable*))
+        (with-exception-catcher
+          (lambda (e)
+            (if (and (error-exception? e)
+                     (equal? (error-exception-message e) 'unsupported-data))
+              (apply error
+                `(get-operation-not-supported
+                  ,call-info
+                  ,@(error-exception-parameters e)))
+              (raise e)))
+          (lambda ()
+            (ra::get callable* positional
+              stop-on-void: (if (assoc "stop-on-nil" kw) #t #f))))
+        (error 'not-a-callable-value callable* call-info)))))
