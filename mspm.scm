@@ -808,7 +808,8 @@
                    (equal? (error-exception-message e)
                            'unbound-variable))
             (eval `(define ,var ra::unbound))
-            (raise e))))
+            (raise e)
+            )))
       (lambda () (eval `(define ,var ,sexp))))
     var))
 
@@ -831,12 +832,15 @@
              (fn-if (not (equal? full-path (get-module-full-path "builtins.ra")))
                     (lambda (code) (cons '("import-from" ("quote" "builtins.ra")) code))
                     (cadr (ast-obj->sexp (module-ast-tree parsed))))))
+      (define params '())
       (set! modules-code (cons full-path modules-code))
       (let ((maybe-error
         (with-exception-catcher
           (lambda (e)
             (if (error-exception? e)
-              (error-exception-message e)
+              (begin
+                (set! params (error-exception-parameters e))
+                (error-exception-message e))
               e))
           (lambda ()
             (ns->scheme sexp-code (make-codegen-info (get-module-ns! full-path) #f #!void))
@@ -845,7 +849,7 @@
           (error (mspm-error-path-set maybe-error full-path))
           (if (equal? maybe-error #!void)
             #!void
-            (error maybe-error)))))))
+            (apply error maybe-error params)))))))
 
 
 (define *tmp-var-for-gambit-values* #!void)
